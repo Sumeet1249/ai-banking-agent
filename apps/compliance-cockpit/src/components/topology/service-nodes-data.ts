@@ -49,7 +49,7 @@ export const TOPOLOGY_NODES: TopologyNode[] = [
     name: 'AI Agent Runtime',
     subtitle: 'Delegated Autonomous Executor',
     role: 'Planner & Tool Invoker',
-    position: [-6.2, 0.6, 0.5],
+    position: [-5.6, 0.4, 0.2],
     color: '#06b6d4', // cyan-500
     status: 'HEALTHY',
     protocol: 'JSON-RPC / REST',
@@ -72,7 +72,7 @@ export const TOPOLOGY_NODES: TopologyNode[] = [
     subtitle: 'Policy Firewall & Permit Issuer',
     role: 'Authorization Perimeter',
     port: 8080,
-    position: [-1.4, 0.8, 1.2],
+    position: [0.0, 0.6, 1.4],
     color: '#6366f1', // indigo-500
     status: 'HEALTHY',
     protocol: 'HTTP / WebSockets / MCP',
@@ -95,7 +95,7 @@ export const TOPOLOGY_NODES: TopologyNode[] = [
     subtitle: 'Independent Execution Perimeter',
     role: 'Settlement Gatekeeper',
     port: 4000,
-    position: [2.6, 1.8, 0.4],
+    position: [4.6, 2.0, -0.6],
     color: '#10b981', // emerald-500
     status: 'HEALTHY',
     protocol: 'Fastify / HTTP REST',
@@ -118,7 +118,7 @@ export const TOPOLOGY_NODES: TopologyNode[] = [
     subtitle: 'Two-Phase Settlement Engine',
     role: 'TigerBeetle Bridge',
     port: 4001,
-    position: [6.2, 1.8, -0.6],
+    position: [7.2, 1.2, -1.8],
     color: '#3b82f6', // blue-500
     status: 'HEALTHY',
     protocol: 'Express REST / Native IPC',
@@ -141,7 +141,7 @@ export const TOPOLOGY_NODES: TopologyNode[] = [
     subtitle: '3-Replica Distributed VSR',
     role: 'Financial Consensus Core',
     port: 3001,
-    position: [6.4, -1.2, -1.2],
+    position: [6.6, -1.6, -1.4],
     color: '#8b5cf6', // violet-500
     status: 'HEALTHY',
     protocol: 'Viewstamped Replication (TCP 3001-3003)',
@@ -164,7 +164,7 @@ export const TOPOLOGY_NODES: TopologyNode[] = [
     subtitle: 'Cryptographic Merkle Notary',
     role: 'Tamper-Evident Notary',
     port: 5000,
-    position: [2.2, -2.4, 0.8],
+    position: [2.2, -2.6, 0.8],
     color: '#f59e0b', // amber-500
     status: 'HEALTHY',
     protocol: 'Fastify / RFC 6962 Merkle Log',
@@ -187,7 +187,7 @@ export const TOPOLOGY_NODES: TopologyNode[] = [
     subtitle: 'Enterprise Banking Command',
     role: 'Human Governance & FIDO2 RP',
     port: 3000,
-    position: [-3.2, -2.2, 0.5],
+    position: [-3.2, -2.5, 0.6],
     color: '#ec4899', // pink-500
     status: 'HEALTHY',
     protocol: 'Next.js 14 / WebAuthn Level 3',
