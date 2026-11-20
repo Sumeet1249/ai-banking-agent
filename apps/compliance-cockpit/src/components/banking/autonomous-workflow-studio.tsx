@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { PasskeyStepUpModal } from './passkey-stepup-modal'
+import { MerkleTreeVisualizer } from './merkle-tree-visualizer'
 
 export interface AgentStep {
   step: number
@@ -128,7 +129,7 @@ export function AutonomousWorkflowStudio() {
   >('idle')
   const [passkeyModalOpen, setPasskeyModalOpen] = useState<boolean>(false)
   const [executionReceipt, setExecutionReceipt] = useState<any | null>(null)
-  const [activeTab, setActiveTab] = useState<'topology' | 'audit_proof' | 'backend_status'>('topology')
+  const [activeTab, setActiveTab] = useState<'topology' | 'merkle_tree' | 'audit_proof' | 'backend_status'>('topology')
 
   // Synchronize initial selection
   useEffect(() => {
@@ -742,6 +743,15 @@ export function AutonomousWorkflowStudio() {
               Agent Inspector: {selectedAgent.name}
             </button>
             <button
+              onClick={() => setActiveTab('merkle_tree')}
+              className={`text-xs font-bold px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 ${
+                activeTab === 'merkle_tree' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary'
+              }`}
+            >
+              <Binary className="h-3.5 w-3.5" />
+              <span>Cryptographic Merkle Tree</span>
+            </button>
+            <button
               onClick={() => setActiveTab('audit_proof')}
               className={`text-xs font-bold px-3 py-1.5 rounded-lg transition ${
                 activeTab === 'audit_proof' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary'
@@ -831,7 +841,19 @@ export function AutonomousWorkflowStudio() {
           </div>
         )}
 
-        {/* Tab 2: Bank Gate & Witness Proof */}
+        {/* Tab 2: Cryptographic Merkle Tree Engine */}
+        {activeTab === 'merkle_tree' && (
+          <div className="pt-1">
+            <MerkleTreeVisualizer
+              currentStep={activeStepIndex + 1}
+              workflowId={`WF-${Date.now().toString().slice(-6)}`}
+              amountPaise={amountRupees * 100}
+              payee={payee}
+            />
+          </div>
+        )}
+
+        {/* Tab 3: Bank Gate & Witness Proof */}
         {activeTab === 'audit_proof' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-1">
             <div className="p-4 rounded-xl border border-border bg-secondary/20 space-y-3">

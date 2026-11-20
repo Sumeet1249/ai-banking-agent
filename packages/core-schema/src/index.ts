@@ -14,6 +14,7 @@ export * from './custom-ontology';
 export * from './sso';
 export * from './banking';
 export * from './workflow-orchestration';
+export * from './budget-pools';
 
 // Base schemas
 export const AgentIdSchema = z.string().uuid();

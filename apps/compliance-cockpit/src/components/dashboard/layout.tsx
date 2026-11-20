@@ -9,7 +9,7 @@ import {
   LayoutDashboard, FileText, Shield, ScrollText, Sparkles,
   CheckCircle, AlertTriangle, Settings, FlaskConical,
   ShieldHalf, Compass, ClipboardList, UserRound, Layers, FileCheck2,
-  ScanLine, Menu, X, Wrench, ChevronDown, Brain, Undo2, Box,
+  ScanLine, Menu, X, Wrench, ChevronDown, Brain, Undo2, Box, Wallet
 } from 'lucide-react'
 import { useTraceStream } from '@/hooks/useTraceStream'
 import { useLicenseTier, hasTier } from '@/hooks/useLicenseTier'
@@ -42,6 +42,7 @@ const navGroups: Array<{ label: string | null; items: NavDef[] }> = [
   ] },
   { label: 'Defend & Protect', items: [
     { name: 'Security 360', href: '/coverage',  icon: ShieldHalf      },
+    { name: 'Category Budget Pools', href: '/budget-pools', icon: Wallet, badge: 'POOLS' },
     { name: 'Policies & Mandates', href: '/policies',   icon: Shield          },
     { name: 'Policy Packs',href: '/dsl/packs',  icon: ScrollText      },
     { name: 'Violations',  href: '/violations', icon: AlertTriangle   },

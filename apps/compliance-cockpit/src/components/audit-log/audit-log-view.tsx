@@ -5,9 +5,10 @@ import { PageHeader } from '@/components/ui/page-header'
 import { fmtWhen } from '@/lib/time'
 import { useQuery } from '@tanstack/react-query'
 import { gw } from '@/lib/gateway'
-import { FileText, Download, ChevronLeft, ChevronRight, ShieldCheck } from 'lucide-react'
+import { FileText, Download, ChevronLeft, ChevronRight, ShieldCheck, Binary } from 'lucide-react'
 import { IntegrityWidget } from './integrity-widget'
 import { EvidencePackWidget } from './evidence-pack-widget'
+import { MerkleTreeVisualizer } from '@/components/banking/merkle-tree-visualizer'
 import { USE_MOCK, mockAuditEntries } from '@/lib/mock-traces'
 
 const BORDER  = 'hsl(var(--border))'
@@ -259,7 +260,10 @@ export function AuditLogView() {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <PageHeader title="Audit Log" subtitle="Every change an operator made and every verdict a judge gave, hash-chained so it cannot be edited after the fact." />
+      <PageHeader title="Audit Log & Merkle Proofs" subtitle="Every change an operator made and every AI agent action, hash-chained in an RFC 6962 Merkle Tree cosigned by Witness :5000." />
+
+      {/* Merkle Tree Engine Visualizer */}
+      <MerkleTreeVisualizer />
 
       {/* Two-column row of compliance affordances: integrity verify
           (read-only check) + evidence-pack download (frozen snapshot
