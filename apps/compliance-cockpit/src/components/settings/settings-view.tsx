@@ -59,7 +59,7 @@ function Section({ title, subtitle, badge, children }: {
 }
 
 export function SettingsView() {
-  const [activeTab, setActiveTab]       = useState<'overview' | 'security' | 'cluster' | 'keys' | 'alerts' | 'lab'>('overview')
+  const [activeTab, setActiveTab]       = useState<'overview' | 'security' | 'cluster' | 'keys' | 'alerts' | 'lab' | 'killswitch'>('overview')
   const [gatewayUrl, setGatewayUrl]     = useState('http://localhost:8081')
   const [bankGateUrl, setBankGateUrl]   = useState('http://localhost:4000')
   const [witnessUrl, setWitnessUrl]     = useState('http://localhost:5000')
