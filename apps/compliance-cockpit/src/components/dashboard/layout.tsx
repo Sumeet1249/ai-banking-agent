@@ -34,6 +34,7 @@ type NavDef = { name: string; href: string; icon: any; badge?: string }
 // Grouped in logical sequence for Hackathon Bank Agent Security
 const navGroups: Array<{ label: string | null; items: NavDef[] }> = [
   { label: 'Mission Control', items: [
+    { name: 'AI Workflow Studio', href: '/workflow-studio', icon: Sparkles, badge: 'AUTO-AI' },
     { name: 'Banking Command', href: '/banking', icon: Layers, badge: 'DEFENSE' },
     { name: 'Overview',    href: '/',           icon: LayoutDashboard },
     { name: 'Activity',    href: '/traces',     icon: FileText        },
