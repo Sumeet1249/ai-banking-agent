@@ -33,10 +33,6 @@ const nextConfig = {
         destination: `${gatewayUrl}/api/v1/:path*`,
       },
       {
-        source: '/api/gateway/:path*',
-        destination: `${gatewayUrl}/api/v1/:path*`,
-      },
-      {
         source: '/api/bank/:path*',
         destination: `${bankGateUrl}/:path*`,
       },

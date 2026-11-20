@@ -56,8 +56,18 @@ export function useTraceStream() {
         )
 
         queryClient.invalidateQueries({ queryKey: ['agent-activity-real'] })
+        queryClient.invalidateQueries({ queryKey: ['traces-for-agents'] })
+        queryClient.invalidateQueries({ queryKey: ['sessions-for-agents'] })
         queryClient.invalidateQueries({ queryKey: ['stats'] })
         queryClient.invalidateQueries({ queryKey: ['violations'] })
+      } catch { /* ignore */ }
+    })
+
+    es.addEventListener('agent_update', () => {
+      try {
+        queryClient.invalidateQueries({ queryKey: ['agents'] })
+        queryClient.invalidateQueries({ queryKey: ['traces-for-agents'] })
+        queryClient.invalidateQueries({ queryKey: ['sessions-for-agents'] })
       } catch { /* ignore */ }
     })
 
