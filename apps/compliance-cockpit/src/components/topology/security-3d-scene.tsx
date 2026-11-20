@@ -169,42 +169,43 @@ function ServiceNode3D({
           />
         </mesh>
 
-          {/* Decluttered Pill Badge - Positioned Cleanly Below Mesh with occlude={false} */}
-          <Html distanceFactor={18} position={[0, -1.15, 0]} center pointerEvents="none" occlude={false}>
-            <div className="flex flex-col items-center select-none whitespace-nowrap transition-transform duration-150">
-              <div
-                      ? 'bg-indigo-600/95 text-white border border-indigo-400/80 shadow-indigo-600/40 scale-105 ring-2 ring-indigo-500/20'
-                      : hovered
-                        ? 'bg-slate-900/95 text-cyan-300 border border-cyan-500/60 shadow-cyan-500/20 scale-105'
-                        : isGateway
-                          ? protectionEnabled
-                            ? 'bg-slate-950/90 text-emerald-300 border border-emerald-500/50'
-                            : 'bg-slate-950/90 text-rose-300 border border-rose-500/50'
-                          : isBreached
-                            ? 'bg-rose-950/90 text-rose-300 border border-rose-500/70 ring-1 ring-rose-500/40'
-                            : 'bg-slate-950/85 text-slate-200 border border-slate-800/80'
-                    }`}
-            >
-              <span
-                className="w-1.5 h-1.5 rounded-full inline-block shrink-0"
-                style={{ backgroundColor: statusColor }}
-              />
-              <span className="font-semibold">{node.name}</span>
-              {node.port ? (
-                <span className="opacity-60 text-[9px]">:{node.port}</span>
-              ) : null}
-            </div>
-
-            {/* Hover / Selected Detail Micro-Tooltip */}
-            {(hovered || isSelected) && (
-              <div className="text-[9px] text-slate-300 font-mono tracking-wider mt-1 px-1.5 py-0.5 rounded bg-slate-900/90 border border-slate-700/60 shadow animate-in fade-in zoom-in-95 duration-100">
-                {node.role}
-              </div>
-            )}
+        {/* Decluttered Pill Badge - Positioned Cleanly Below Mesh with occlude={false} */}
+        <Html distanceFactor={18} position={[0, -1.15, 0]} center pointerEvents="none" occlude={false}>
+          <div className="flex flex-col items-center select-none whitespace-nowrap transition-transform duration-150">
+            <div
+            className={`px-2 py-0.5 rounded-full text-[11px] font-mono backdrop-blur-md shadow-lg flex items-center gap-1.5 transition-all duration-150 ${isSelected
+                ? 'bg-indigo-600/95 text-white border border-indigo-400/80 shadow-indigo-600/40 scale-105 ring-2 ring-indigo-500/20'
+                : hovered
+                  ? 'bg-slate-900/95 text-cyan-300 border border-cyan-500/60 shadow-cyan-500/20 scale-105'
+                  : isGateway
+                    ? protectionEnabled
+                      ? 'bg-slate-950/90 text-emerald-300 border border-emerald-500/50'
+                      : 'bg-slate-950/90 text-rose-300 border border-rose-500/50'
+                    : isBreached
+                      ? 'bg-rose-950/90 text-rose-300 border border-rose-500/70 ring-1 ring-rose-500/40'
+                      : 'bg-slate-950/85 text-slate-200 border border-slate-800/80'
+              }`}
+              >
+            <span
+              className="w-1.5 h-1.5 rounded-full inline-block shrink-0"
+              style={{ backgroundColor: statusColor }}
+            />
+            <span className="font-semibold">{node.name}</span>
+            {node.port ? (
+              <span className="opacity-60 text-[9px]">:{node.port}</span>
+            ) : null}
           </div>
-        </Html>
-      </Float>
-    </group>
+
+          {/* Hover / Selected Detail Micro-Tooltip */}
+          {(hovered || isSelected) && (
+            <div className="text-[9px] text-slate-300 font-mono tracking-wider mt-1 px-1.5 py-0.5 rounded bg-slate-900/90 border border-slate-700/60 shadow animate-in fade-in zoom-in-95 duration-100">
+              {node.role}
+            </div>
+          )}
+        </div>
+      </Html>
+    </Float>
+    </group >
   )
 }
 
