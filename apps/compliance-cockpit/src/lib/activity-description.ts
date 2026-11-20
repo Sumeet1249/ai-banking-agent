@@ -190,14 +190,14 @@ export function describeActivity(trace: any): RichActivity {
   }
 
   // ── PAYMENT ──────────────────────────────────────────────────────
-  if (/stripe/.test(tool)) {
-    const amt = args.amount_cents ?? args.amount ?? null
-    const usd = typeof amt === 'number'
-      ? (amt > 999 ? `$${(amt / 100).toFixed(2)}` : `$${amt}`)
+  if (/stripe|razorpay|payout|transfer|payment/.test(tool) || /razorpay\.com|stripe\.com/.test(String(args.url || ''))) {
+    const amt = args.amount_paise ?? args.amount_cents ?? args.amount ?? null
+    const inr = typeof amt === 'number'
+      ? (amt > 9999 ? `₹${(amt / 100).toLocaleString('en-IN')}` : `₹${amt}`)
       : null
-    const action = /refund/.test(tool) ? 'Refunded' : /transfer/.test(tool) ? 'Transferred' : 'Charged'
+    const action = /refund/.test(tool) ? 'Refunded' : /transfer|payout/.test(tool) ? 'Transferred' : 'Paid'
     return {
-      text: usd ? `${action} ${usd}` : `${action} via Stripe`,
+      text: inr ? `${action} ${inr}` : `${action} via Payment Gateway`,
       iconKey: tool,
     }
   }
