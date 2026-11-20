@@ -1,0 +1,221 @@
+import { z } from 'zod';
+import { createHash } from 'crypto';
+
+export * from './tenant-config';
+export * from './policy-dsl';
+export * from './detector';
+export * from './ontology';
+export * from './sink';
+export * from './agent-registry';
+export * from './custom-detector';
+export * from './custom-compliance';
+export * from './tenant-template';
+export * from './custom-ontology';
+export * from './sso';
+export * from './banking';
+
+// Base schemas
+export const AgentIdSchema = z.string().uuid();
+export const TraceIdSchema = z.string().uuid();
+export const TimestampSchema = z.string();
+export const HashSchema = z.string().regex(/^[a-f0-9]{64}$/i);
+
+// Tool call schema
+export const ToolCallSchema = z.object({
+  tool_name: z.string(),
+  function: z.string(),
+  arguments: z.record(z.any()),
+  timestamp: TimestampSchema,
+});
+
+// Input context schema
+export const InputContextSchema = z.object({
+  prompt: z.string(),
+  retrieved_snippets: z.array(z.object({
+    source: z.string(),
+    content: z.string(),
+    relevance_score: z.number().min(0).max(1),
+  })).nullable().optional(),
+  system_context: z.record(z.any()).nullable().optional(),
+});
+
+// Thought chain schema
+export const ThoughtChainSchema = z.object({
+  raw_tokens: z.string(),
+  parsed_steps: z.array(z.string()).nullable().optional(),
+  confidence_score: z.number().min(0).max(1).nullable().optional(),
+});
+
+// Observation schema
+export const ObservationSchema = z.object({
+  raw_output: z.any(),
+  error: z.string().nullable().optional(),
+  duration_ms: z.number().positive(),
+  metadata: z.record(z.any()).nullable().optional(),
+});
+
+// Safety policy validation
+export const SafetyValidationSchema = z.object({
+  policy_name: z.string(),
+  passed: z.boolean(),
+  violations: z.array(z.string()).nullable().optional(),
+  risk_level: z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']),
+  // The gateway check this verdict came from and, for an allow, its signed
+  // receipt (services/receipts.ts). Not covered by the trace hash; the
+  // receipt carries its own signature.
+  check_id: z.string().max(100).nullable().optional(),
+  receipt: z.string().max(4096).nullable().optional(),
+});
+
+/**
+ * Delegation identifiers are opaque strings bound by the SDK's
+ * delegation scope stack (Toledo et al. arXiv:2606.09692). Kept as
+ * plain strings — not UUIDs — because operators want to use
+ * meaningful ids like "user-request-42" or "ticket:INC-98123".
+ */
+const DelegationIdSchema = z.string().min(1).max(128).regex(/^[A-Za-z0-9._:\-]+$/);
+
+// Main trace schema
+export const AgentActionTraceSchema = z.object({
+  trace_id: TraceIdSchema,
+  parent_trace_id: TraceIdSchema.nullable().optional(),
+  delegation_id: DelegationIdSchema.nullable().optional(),
+  parent_delegation_id: DelegationIdSchema.nullable().optional(),
+  agent_id: AgentIdSchema,
+  timestamp: TimestampSchema,
+  sequence_number: z.number().int().nonnegative(),
+
+  // Core fields
+  input_context: InputContextSchema,
+  thought_chain: ThoughtChainSchema,
+  tool_call: ToolCallSchema,
+  observation: ObservationSchema,
+
+  // Security & Integrity
+  integrity_hash: HashSchema,
+  previous_hash: HashSchema.nullable().optional(),
+  signature: z.string().nullable().optional(),
+
+  // Safety & Compliance
+  safety_validation: SafetyValidationSchema.nullable().optional(),
+  approval_status: z.enum(['APPROVED', 'PENDING_APPROVAL', 'REJECTED', 'AUTO_APPROVED']).nullable().optional(),
+  approved_by: z.string().nullable().optional(),
+
+  // Metadata
+  environment: z.enum(['DEVELOPMENT', 'STAGING', 'PRODUCTION']).default('DEVELOPMENT'),
+  version: z.string().default('1.0.0'),
+  tags: z.array(z.string()).nullable().optional(),
+
+  // ── Workflow anchoring (Phase 1.3) ───────────────────────────────
+  // Populated by the SDK when it can correlate the intercepted call
+  // back to a node in the agent's extracted WorkflowGraph. Downstream
+  // layers (NL policy DSL, node-scoped compensators, cockpit
+  // delegation waterfall) consume these as the canonical anchor.
+  //
+  // Optional so:
+  //   · legacy SDKs that pre-date workflow extraction keep working
+  //   · calls that genuinely have no workflow context (ad-hoc /check,
+  //     one-off scripts) don't have to synthesize a fake node id
+  workflow_node_id:    z.string().uuid().nullable().optional(),
+  workflow_binding_id: z.string().uuid().nullable().optional(),
+
+  // ── A2A observability envelope (Phase 4b) ────────────────────────
+  // When a parent agent delegates to a child agent, the child's first
+  // trace under that delegation carries the envelope: WHO delegated
+  // (parent_agent_id), WHY (delegation_reason), and WHAT authority
+  // was granted (capability_grant JSON). Structural links (parent_
+  // trace_id, delegation_id) already exist and are unchanged.
+  //
+  // `a2a_envelope_hash` is SHA-256 hex over the canonical envelope
+  // and ties a specific child trace back to a specific handoff event.
+  // Two identical handoffs collide on hash — that is desirable for
+  // dedup (same parent/child/reason/capabilities executed twice is
+  // observationally the same event, and we surface it once in the
+  // audit UI).
+  //
+  // Purely observability in v1 — no runtime gate on delegation.
+  // Phase 5 will layer active enforcement on top by evaluating the
+  // envelope through the DSL before the child registers.
+  parent_agent_id:    z.string().nullable().optional(),
+  delegation_reason:  z.string().max(1000).nullable().optional(),
+  capability_grant:   z.record(z.unknown()).nullable().optional(),
+  a2a_envelope_hash:  z.string().regex(/^[0-9a-f]{64}$/).nullable().optional(),
+});
+
+// Enum exports (for runtime use)
+export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+export type ApprovalStatus = 'APPROVED' | 'PENDING_APPROVAL' | 'REJECTED' | 'AUTO_APPROVED';
+
+// Type exports
+export type AgentActionTrace = z.infer<typeof AgentActionTraceSchema>;
+export type ToolCall = z.infer<typeof ToolCallSchema>;
+export type InputContext = z.infer<typeof InputContextSchema>;
+export type ThoughtChain = z.infer<typeof ThoughtChainSchema>;
+export type Observation = z.infer<typeof ObservationSchema>;
+export type SafetyValidation = z.infer<typeof SafetyValidationSchema>;
+
+// Trace bundle schema (for export)
+export const TraceBundleSchema = z.object({
+  bundle_id: z.string().uuid(),
+  created_at: TimestampSchema,
+  traces: z.array(AgentActionTraceSchema),
+  metadata: z.object({
+    agent_id: AgentIdSchema,
+    session_id: z.string().uuid(),
+    export_reason: z.string(),
+    total_traces: z.number().int().positive(),
+    hash_chain_valid: z.boolean(),
+    signature: z.string().optional(),
+  }),
+});
+
+export type TraceBundle = z.infer<typeof TraceBundleSchema>;
+
+// API request/response schemas
+export const CreateTraceRequestSchema = AgentActionTraceSchema.omit({
+  integrity_hash: true,
+  signature: true,
+});
+
+export const TraceQuerySchema = z.object({
+  agent_id: AgentIdSchema.optional(),
+  start_time: TimestampSchema.optional(),
+  end_time: TimestampSchema.optional(),
+  risk_level: z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).optional(),
+  approval_status: z.enum(['APPROVED', 'PENDING_APPROVAL', 'REJECTED', 'AUTO_APPROVED']).optional(),
+  limit: z.coerce.number().int().positive().max(1000).default(100),
+  offset: z.coerce.number().int().nonnegative().default(0),
+});
+
+export type CreateTraceRequest = z.infer<typeof CreateTraceRequestSchema>;
+export type TraceQuery = z.infer<typeof TraceQuerySchema>;
+
+// Utility functions
+export function validateTraceChain(traces: AgentActionTrace[]): boolean {
+  if (traces.length === 0) return true;
+
+  for (let i = 1; i < traces.length; i++) {
+    if (traces[i].previous_hash !== traces[i - 1].integrity_hash) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+export function calculateTraceHash(trace: Omit<AgentActionTrace, 'integrity_hash' | 'signature'>): string {
+  // This is a placeholder - in production, use proper crypto library
+  const content = JSON.stringify({
+    trace_id: trace.trace_id,
+    agent_id: trace.agent_id,
+    timestamp: trace.timestamp,
+    input_context: trace.input_context,
+    thought_chain: trace.thought_chain,
+    tool_call: trace.tool_call,
+    observation: trace.observation,
+    previous_hash: trace.previous_hash || '',
+  });
+
+  return createHash('sha256').update(content).digest('hex');
+}
+export * from './provenance';

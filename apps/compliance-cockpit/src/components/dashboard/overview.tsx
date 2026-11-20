@@ -1,0 +1,499 @@
+'use client'
+
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { PageHeader } from '@/components/ui/page-header'
+import { useState, useMemo } from 'react'
+import { useRouter } from 'next/navigation'
+import { Loader2 } from 'lucide-react'
+import { gw } from '@/lib/gateway'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Search, X, ArrowRight, AlertTriangle, Code2, Zap, Sparkles, CheckCircle2 } from 'lucide-react'
+import Link from 'next/link'
+import { RecentTraces } from './recent-traces'
+import { UpsellBanner } from './upsell-banner'
+import { AgentLimitBanner } from './agent-limit-banner'
+import { AlertRulesPanel } from './alert-rules-panel'
+import { UsageMeter } from './usage-meter'
+import { AgentActivity } from './agent-activity'
+import { AnomalyPanel } from './anomaly-panel'
+import { CostPanel } from './cost-panel'
+import { SessionsPanel } from './sessions-panel'
+import { ActivityChart, useSparklineSeries } from './activity-chart'
+import { Sparkline } from '@/components/ui/sparkline'
+import { USE_MOCK, mockTotalActions, mockPendingChecks, mockViolations, mockAgents } from '@/lib/mock-traces'
+
+const BORDER = 'hsl(var(--border))'
+const MUTED  = 'hsl(var(--muted-foreground))'
+const TEXT   = 'hsl(var(--foreground))'
+
+function StatCards({ stats }: { stats: any }) {
+  const { actions, blocked, isLoading } = useSparklineSeries()
+  // Last-6h slice for the per-card mini chart — keeps it scannable.
+  const slice = (arr: number[]) => arr.slice(-6)
+  return (
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <Card className="card-depth-hover">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Actions</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-3xl font-bold tabular-nums">{(stats?.totalTraces || 0).toLocaleString()}</div>
+          <div className="mt-1.5">
+            <Sparkline data={isLoading ? [] : slice(actions)} color="hsl(var(--brand))" />
+          </div>
+        </CardContent>
+      </Card>
+      <Card className="card-depth-hover">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Agents</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-3xl font-bold tabular-nums">{(stats?.activeAgents || 0).toLocaleString()}</div>
+          <p className="text-[10px] mt-2" style={{ color: 'hsl(var(--muted-foreground))' }}>
+            active in 24h
+          </p>
+        </CardContent>
+      </Card>
+      <Card className="card-depth-hover">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Pending</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-3xl font-bold tabular-nums" style={{ color: (stats?.pendingChecks ?? 0) > 0 ? 'hsl(var(--status-attn))' : undefined }}>
+            {(stats?.pendingChecks || 0).toLocaleString()}
+          </div>
+          <p className="text-[10px] mt-2" style={{ color: 'hsl(var(--muted-foreground))' }}>
+            awaiting review
+          </p>
+        </CardContent>
+      </Card>
+      <Card className="card-depth-hover">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Blocked 24h</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-3xl font-bold tabular-nums" style={{ color: (stats?.violations24h ?? 0) > 0 ? 'hsl(var(--status-drift))' : undefined }}>
+            {(stats?.violations24h || 0).toLocaleString()}
+          </div>
+          <div className="mt-1.5">
+            <Sparkline data={isLoading ? [] : slice(blocked)} color="hsl(var(--status-drift))" />
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+function GlobalSearch() {
+  const [query, setQuery] = useState('')
+  const [open, setOpen]   = useState(false)
+  const router = useRouter()
+
+  const { data: traces } = useQuery({
+    queryKey: ['search-traces', query],
+    queryFn: async () => {
+      if (!query.trim()) return []
+      const res = await fetch(`/api/gateway/traces?limit=200`)
+      if (!res.ok) return []
+      const d = await res.json()
+      return d.traces ?? []
+    },
+    enabled: query.trim().length >= 2,
+    staleTime: 5000,
+  })
+
+  const results = useMemo(() => {
+    if (!query.trim() || !traces?.length) return []
+    const q = query.toLowerCase()
+    return traces.filter((t: any) => {
+      const hay = [t.trace_id, t.agent_id, t.tool_call?.tool_name, t.input_context?.prompt]
+        .filter(Boolean).join(' ').toLowerCase()
+      return hay.includes(q)
+    }).slice(0, 6)
+  }, [query, traces])
+
+  return (
+    <div className="relative">
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4" style={{ color: MUTED }} />
+        <input
+          className="w-full rounded-lg pl-10 pr-10 py-2.5 text-sm border outline-none transition-shadow"
+          style={{ borderColor: open && results.length > 0 ? 'hsl(var(--ring))' : BORDER, background: 'hsl(var(--card))', color: TEXT, boxShadow: open && results.length > 0 ? '0 4px 16px hsl(0 0% 0% / 0.05)' : 'none' }}
+          placeholder="Search agents, tools, trace IDs..."
+          value={query}
+          onChange={e => { setQuery(e.target.value); setOpen(true) }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 200)}
+        />
+        {query && (
+          <button onClick={() => { setQuery(''); setOpen(false) }} className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: MUTED }}>
+            <X className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+      {open && results.length > 0 && (
+        <div className="absolute z-50 w-full mt-1 rounded-lg border overflow-hidden" style={{ background: 'hsl(var(--card))', borderColor: BORDER, boxShadow: '0 8px 24px hsl(30 10% 15% / 0.08)' }}>
+          {results.map((t: any) => (
+            <button
+              key={t.trace_id}
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors"
+              style={{ color: TEXT }}
+              onMouseDown={() => { router.push(`/traces?id=${t.trace_id}`); setOpen(false); setQuery('') }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'hsl(var(--secondary))')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+            >
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium truncate">{t.tool_call?.tool_name || 'unknown'}</p>
+                <p className="text-[10px] truncate" style={{ color: MUTED }}>{t.agent_id} · {t.trace_id.substring(0, 8)}</p>
+              </div>
+              <ArrowRight className="h-3 w-3 flex-shrink-0" style={{ color: MUTED }} />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function EmptyState() {
+  const queryClient = useQueryClient()
+  const [seeding, setSeeding] = useState(false)
+  const [seedError, setSeedError] = useState<string | null>(null)
+
+  async function seedDemo() {
+    setSeeding(true)
+    setSeedError(null)
+    try {
+      const res = await gw('seed', { method: 'POST' })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data?.error?.message ?? `HTTP ${res.status}`)
+      }
+      // Invalidate every dashboard query so the new traces flow in
+      // immediately rather than waiting for the 10s poll.
+      await queryClient.invalidateQueries()
+    } catch (e: any) {
+      setSeedError(e.message ?? 'Seed failed')
+    } finally {
+      setSeeding(false)
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <PageHeader title="Overview" subtitle="What your agents are doing right now, and what AgentShield stopped." />
+
+      <div
+        className="rounded-lg p-8 md:p-10 text-center space-y-4"
+        style={{
+          background: 'hsl(var(--card))',
+          border: `1px solid ${BORDER}`,
+        }}
+      >
+        <div className="inline-flex items-center justify-center mx-auto" style={{ color: MUTED }}>
+          <span className="relative inline-flex h-3 w-3" aria-hidden="true">
+            <span
+              className="absolute inline-flex h-full w-full rounded-full opacity-60 animate-ping"
+              style={{ background: 'hsl(var(--primary))' }}
+            />
+            <span
+              className="relative inline-flex rounded-full h-3 w-3"
+              style={{ background: 'hsl(var(--primary))' }}
+            />
+          </span>
+          <span className="ml-2 text-xs uppercase tracking-widest">Listening</span>
+        </div>
+
+        <h2
+          className="text-2xl"
+          style={{
+            fontFamily: 'var(--font-serif), Georgia, serif',
+            color: 'hsl(var(--foreground))',
+            letterSpacing: '-0.012em',
+          }}
+        >
+          Nothing has come through AgentShield yet.
+        </h2>
+        <p className="text-sm max-w-xl mx-auto" style={{ color: MUTED }}>
+          The gateway is up and the dashboard is wired — it just hasn't seen
+          its first tool call. Pick a way to plug in below.
+        </p>
+
+        {/* Quest checklist: what has to happen for the first real trace
+            to land. Step 1 is inherently met (this page rendering
+            means the gateway responded). Steps 2 + 3 are the branch
+            points into either the SDK or the zero-code proxy. */}
+        <div className="max-w-xl mx-auto text-left space-y-1.5 py-2">
+          <QuestRow done label="Gateway is listening on localhost:8081" />
+          <QuestRow done={false} label="Choose an integration path (below)" />
+          <QuestRow done={false} label="Make your first LLM / tool call" />
+        </div>
+
+        <div className="pt-2 grid grid-cols-1 md:grid-cols-3 gap-3 text-left max-w-3xl mx-auto">
+          <PathCard
+            icon={<Zap className="h-5 w-5" />}
+            title="Zero-code proxy"
+            body="Install a root cert + route OS proxy through AgentShield. Every agent on this machine gets traced. Two admin prompts."
+            cta="Set up proxy"
+            href="/proxy"
+            recommended
+          />
+          <PathCard
+            icon={<Code2 className="h-5 w-5" />}
+            title="SDK"
+            body="One line of code in your agent client. Full LLM prompt context + per-agent attribution."
+            cta="Open Welcome"
+            href="/welcome"
+          />
+          <PathCard
+            icon={<Sparkles className="h-5 w-5" />}
+            title="Sample data"
+            body="Not ready to wire anything up? Seed a few example traces to feel how the dashboard reacts."
+            cta={seeding ? 'Seeding…' : 'Load samples'}
+            onClick={seedDemo}
+            loading={seeding}
+          />
+        </div>
+
+        {seedError && (
+          <p className="text-xs pt-1" style={{ color: 'hsl(0 50% 38%)' }}>
+            {seedError}
+          </p>
+        )}
+
+        <p className="text-[11px] pt-3" style={{ color: MUTED, opacity: 0.7 }}>
+          Sample traces are seeded directly into your local SQLite DB.
+          Wipe them anytime by deleting <code>~/Library/Application Support/com.aojieyuan.aegis/aegis.db</code>.
+        </p>
+      </div>
+    </div>
+  )
+}
+
+/** Small check + label row for the quest-style "first-trace" checklist. */
+function QuestRow({ done, label }: { done: boolean; label: string }) {
+  return (
+    <div className="flex items-center gap-2 text-sm">
+      <span
+        className="flex-shrink-0 inline-flex items-center justify-center rounded-full"
+        style={{
+          width: 16, height: 16,
+          background: done ? 'hsl(150 30% 40%)' : 'transparent',
+          border: done ? 'none' : `1.5px dashed ${BORDER}`,
+        }}
+      >
+        {done && <CheckCircle2 className="h-3 w-3" style={{ color: 'white' }} />}
+      </span>
+      <span style={{ color: done ? 'hsl(var(--foreground))' : MUTED, opacity: done ? 0.75 : 1 }}>
+        {label}
+      </span>
+    </div>
+  )
+}
+
+/** Integration-path card shown in the empty state. Either navigates
+ *  via href OR fires an onClick (for the seed-samples path). */
+function PathCard({
+  icon, title, body, cta, href, onClick, recommended, loading,
+}: {
+  icon: React.ReactNode
+  title: string
+  body: string
+  cta: string
+  href?: string
+  onClick?: () => void
+  recommended?: boolean
+  loading?: boolean
+}) {
+  const inner = (
+    <>
+      <div className="flex items-center gap-2 mb-2">
+        <span style={{ color: 'hsl(var(--primary))' }}>{icon}</span>
+        <div className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>
+          {title}
+        </div>
+        {recommended && (
+          <span
+            className="text-[9px] uppercase tracking-widest font-semibold px-1.5 py-0.5 rounded-sm ml-auto"
+            style={{ background: 'hsl(var(--secondary))', color: MUTED }}
+          >
+            Recommended
+          </span>
+        )}
+      </div>
+      <p className="text-xs leading-relaxed mb-3" style={{ color: MUTED }}>
+        {body}
+      </p>
+      <div className="text-xs font-medium flex items-center gap-1" style={{ color: 'hsl(var(--primary))' }}>
+        {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+        {cta} {!loading && <ArrowRight className="h-3 w-3" />}
+      </div>
+    </>
+  )
+  const style: React.CSSProperties = {
+    background: 'hsl(var(--card))',
+    borderColor: BORDER,
+    color: 'hsl(var(--foreground))',
+    opacity: loading ? 0.6 : 1,
+  }
+  const cls = 'block rounded-md border p-4 hover:border-current transition-colors text-left'
+  if (href) return <Link href={href} className={cls} style={style}>{inner}</Link>
+  return <button type="button" onClick={onClick} className={cls} style={style} disabled={loading}>{inner}</button>
+}
+
+export function DashboardOverview() {
+  const { data: liveStats } = useQuery({
+    enabled: !USE_MOCK,
+    queryKey: ['dashboard-stats'],
+    queryFn: async () => {
+      const response = await fetch('/api/gateway/stats')
+      if (!response.ok) throw new Error('Failed to fetch stats')
+      return response.json()
+    },
+    refetchInterval: 10_000,
+  })
+  const mockStats = {
+    totalTraces:   mockTotalActions() || 720,
+    activeAgents:  mockAgents().filter(a => a.status === 'active').length || 4,
+    pendingChecks: mockPendingChecks().length,
+    violations24h: mockViolations().length || 4,
+  }
+  const stats = (liveStats && (liveStats.totalTraces > 0 || liveStats.activeAgents > 0)) ? liveStats : mockStats
+
+  const trendLabel = (value: number | undefined) => {
+    if (value === undefined || value === null) return null
+    const sign = value > 0 ? '+' : ''
+    const color = value > 0 ? 'hsl(150 18% 40%)' : value < 0 ? 'hsl(0 14% 46%)' : 'hsl(var(--muted-foreground))'
+    return (
+      <span style={{ color }}>{sign}{value}% vs prev hour</span>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* AgentShield Banking Control Plane Hero Banner */}
+      <div className="rounded-xl border border-border bg-card p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-6 w-6 text-[hsl(var(--status-ok))]" />
+            <h2 className="text-lg font-semibold text-foreground">
+              AgentShield — Securing Banks Against Rogue AI Agents
+            </h2>
+            <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              5/5 Requirements Active
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Zero-trust pre-execution gateway, integer-paise mandates, Ed25519 permits, sub-second instant revocation, and 7-scenario Attack Lab.
+          </p>
+        </div>
+
+        <Link
+          href="/banking"
+          className="px-5 py-2.5 bg-primary text-primary-foreground hover:opacity-90 rounded-lg text-xs font-semibold flex items-center gap-2 transition shrink-0"
+        >
+          <Zap className="h-4 w-4 fill-current" />
+          Open Banking Attack Lab &rarr;
+        </Link>
+      </div>
+
+      <PageHeader title="Overview" subtitle="What your agents are doing right now, and what AgentShield stopped."
+        actions={<div className="w-80"><GlobalSearch /></div>} />
+
+      {/* Pending checks alert banner */}
+      {(stats?.pendingChecks ?? 0) > 0 && (
+        <Link
+          href="/approvals"
+          className="flex items-center gap-3 px-4 py-3 rounded-lg border border-[hsl(var(--warn-border))] bg-[hsl(var(--warn-bg))] text-[hsl(var(--warn-fg))] hover:brightness-105 transition-all"
+        >
+          <span className="flex items-center justify-center w-8 h-8 rounded-full flex-shrink-0 bg-[hsl(var(--warn-bg))] border border-[hsl(var(--warn-border))]">
+            <AlertTriangle className="h-4 w-4 text-[hsl(var(--warn-fg))]" />
+          </span>
+          <p className="flex-1 text-sm font-semibold text-[hsl(var(--warn-fg))]">
+            {stats.pendingChecks} awaiting approval
+          </p>
+          <ArrowRight className="h-4 w-4 flex-shrink-0 text-[hsl(var(--warn-fg))]" />
+        </Link>
+      )}
+
+      {/* Stats Cards (with sparklines) */}
+      <StatCards stats={stats} />
+
+      {/* Main Content Tabs */}
+      <Tabs defaultValue="activity" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="activity">Activity</TabsTrigger>
+          <TabsTrigger value="anomalies">Anomalies</TabsTrigger>
+          <TabsTrigger value="alerts">Alerts</TabsTrigger>
+          <TabsTrigger value="costs">Costs</TabsTrigger>
+          <TabsTrigger value="sessions">Sessions</TabsTrigger>
+        </TabsList>
+        <TabsContent value="activity" className="space-y-4">
+          <Card>
+            <CardContent className="pt-6">
+              <ActivityChart />
+            </CardContent>
+          </Card>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
+            <Card className="col-span-4">
+              <CardHeader>
+                <CardTitle>Agent Activity</CardTitle>
+              </CardHeader>
+              <CardContent className="pl-2">
+                <AgentActivity />
+              </CardContent>
+            </Card>
+            <Card className="col-span-3">
+              <CardHeader>
+                <CardTitle>Recent Traces</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <RecentTraces />
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+        <TabsContent value="anomalies" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Anomalies</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <AnomalyPanel />
+            </CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent value="alerts" className="space-y-4">
+          <AlertRulesPanel />
+        </TabsContent>
+        <TabsContent value="costs" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Costs</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <CostPanel />
+            </CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent value="sessions" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Sessions</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <SessionsPanel />
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
+  )
+}

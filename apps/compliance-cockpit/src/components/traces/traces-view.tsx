@@ -1,0 +1,205 @@
+'use client'
+
+import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { RunTimeline } from './run-timeline'
+import { TracesList } from './traces-list'
+import { TraceDetails } from './trace-details'
+import { DecisionGraph } from './decision-graph'
+import { TimeTravel } from './time-travel'
+import { useAlerts } from '@/hooks/useAlerts'
+import { AgentCompare } from './agent-compare'
+import { FileDown } from 'lucide-react'
+import { USE_MOCK, mockTraces } from '@/lib/mock-traces'
+import { TraceSearchBar } from './trace-search-bar'
+import { parseMaybeJson } from '@/lib/safe-format'
+
+export function TracesView() {
+  const [selectedTrace, setSelectedTrace] = useState<string | null>(null)
+  const [selectedAgent, setSelectedAgent] = useState<string | null>(null)
+  const [exporting, setExporting] = useState(false)
+  // DSL search results — when populated, takes precedence over the
+  // plain agent-filtered list. `null` means "no active search, use
+  // the default trace-list endpoint".
+  const [searchResults, setSearchResults] = useState<{ traces: any[]; total: number } | null>(null)
+
+  async function handleExport(allTraces: any[]) {
+    setExporting(true)
+    try {
+      const { exportComplianceReport } = await import('@/lib/export-pdf')
+      await exportComplianceReport({ traces: allTraces, generatedAt: new Date() })
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  function handleExportCsv(allTraces: any[]) {
+    const rows = allTraces.map(t => {
+      const tool = parseMaybeJson<{ tool_name?: string; name?: string }>(t.tool_call)
+      const safe = parseMaybeJson<{ risk_level?: string; passed?: boolean; decision?: string }>(t.safety_validation)
+      const toolName = tool?.tool_name ?? tool?.name ?? ''
+      return [
+        t.trace_id ?? '', t.agent_id ?? '', t.timestamp ?? '', t.environment ?? '',
+        toolName, safe?.risk_level ?? '', safe?.passed ? 'pass' : 'fail',
+        t.blocked ? 'blocked' : '', t.session_id ?? '', t.model ?? '',
+        t.cost_usd ?? 0, t.pii_detected ? 'yes' : 'no',
+        t.anomaly_score ?? 0,
+      ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')
+    })
+    const csv = [
+      'trace_id,agent_id,timestamp,environment,tool_name,risk_level,result,blocked,session_id,model,cost_usd,pii,anomaly_score',
+      ...rows,
+    ].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href     = url
+    a.download = `aegis-traces-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const { data: traces } = useQuery({
+    enabled: !USE_MOCK,
+    queryKey: ['traces', selectedAgent],
+    queryFn: async () => {
+      const params = new URLSearchParams()
+      if (selectedAgent) params.append('agent_id', selectedAgent)
+      params.append('limit', '100')
+
+      const response = await fetch(`/api/gateway/traces?${params}`)
+      if (!response.ok) throw new Error('Failed to fetch traces')
+      return response.json()
+    },
+  })
+
+  // Mock-mode swap — same shape, deterministic for demos / screenshots.
+  const defaultTraces = USE_MOCK
+    ? { traces: selectedAgent ? mockTraces().filter((t: any) => t.agent_id === selectedAgent) : mockTraces() }
+    : traces
+  // If the user has an active DSL search, that becomes the source of
+  // truth for the list. Otherwise fall through to the agent-filtered
+  // default fetch — preserves existing behaviour for anyone who
+  // never touches the search bar.
+  const effectiveTraces = searchResults ?? defaultTraces
+
+  useAlerts(effectiveTraces?.traces || [])
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-[28px] leading-tight font-semibold tracking-[-0.02em]">Activity</h1>
+          <p className="mt-1.5 text-[14.5px] max-w-[68ch]" style={{ color: 'hsl(var(--muted-foreground))' }}>Every agent run, step by step: what it was asked, what it did, and what AgentShield decided.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => handleExportCsv(effectiveTraces?.traces || [])}
+            disabled={!effectiveTraces?.traces?.length}
+            className="flex items-center gap-2 text-sm px-4 py-2 rounded-lg border border-border bg-card text-foreground hover:bg-secondary font-medium transition-colors disabled:opacity-40"
+          >
+            <FileDown className="h-4 w-4" />
+            Export CSV
+          </button>
+          <button
+            onClick={() => handleExport(effectiveTraces?.traces || [])}
+            disabled={exporting || !effectiveTraces?.traces?.length}
+            className="flex items-center gap-2 text-sm px-4 py-2 rounded-lg border border-border bg-card text-foreground hover:bg-secondary font-medium transition-colors disabled:opacity-40"
+          >
+            <FileDown className="h-4 w-4" />
+            {exporting ? 'Generating…' : 'Export PDF'}
+          </button>
+        </div>
+      </div>
+
+      <Tabs defaultValue="runs" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="runs">Runs</TabsTrigger>
+          <TabsTrigger value="list">All actions</TabsTrigger>
+          <TabsTrigger value="graph">Decision Graph</TabsTrigger>
+          <TabsTrigger value="timetravel">Time Travel</TabsTrigger>
+          <TabsTrigger value="compare">Agent Compare</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="runs" className="space-y-4">
+          <RunTimeline />
+        </TabsContent>
+
+        <TabsContent value="list" className="space-y-4">
+          <TraceSearchBar onResults={setSearchResults} />
+          <div className="grid gap-4 md:grid-cols-12">
+            {/* Mobile: hide the list while a trace is selected — the
+                details panel takes the whole width. On md+ they sit
+                side-by-side. */}
+            <div className={`md:col-span-5 ${selectedTrace ? 'hidden md:block' : ''}`}>
+              <TracesList
+                traces={effectiveTraces?.traces || []}
+                selectedTrace={selectedTrace}
+                onSelectTrace={setSelectedTrace}
+                onSelectAgent={setSelectedAgent}
+              />
+            </div>
+            <div className={`md:col-span-7 ${selectedTrace ? '' : 'hidden md:block'}`}>
+              {selectedTrace && (
+                <div className="md:hidden mb-2">
+                  <button
+                    onClick={() => setSelectedTrace(null)}
+                    className="text-xs px-2 py-1 rounded border"
+                    style={{
+                      borderColor: 'hsl(var(--border))',
+                      color: 'hsl(var(--muted-foreground))',
+                    }}
+                  >
+                    ← Back to list
+                  </button>
+                </div>
+              )}
+              {selectedTrace && (
+                <TraceDetails
+                  traceId={selectedTrace}
+                  onExport={() => {}}
+                  // Clicking a hop in the delegation waterfall swaps
+                  // the details panel to that trace — same slot,
+                  // different focus.
+                  onSelectTrace={setSelectedTrace}
+                />
+              )}
+              {!selectedTrace && (
+                <div
+                  className="hidden md:flex h-full min-h-[280px] items-center justify-center rounded-xl border border-dashed text-center px-8"
+                  style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}
+                >
+                  <div className="max-w-xs space-y-1">
+                    <p className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>Select a trace</p>
+                    <p className="text-xs">
+                      The decision, the facts each layer produced, the arguments as the agent emitted them, and the session context open here.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="graph" className="space-y-4">
+          <DecisionGraph
+            agentId={selectedAgent}
+            traces={effectiveTraces?.traces || []}
+          />
+        </TabsContent>
+
+        <TabsContent value="timetravel" className="space-y-4">
+          <TimeTravel
+            traces={effectiveTraces?.traces || []}
+            selectedAgent={selectedAgent}
+          />
+        </TabsContent>
+
+        <TabsContent value="compare" className="space-y-4">
+          <AgentCompare traces={effectiveTraces?.traces || []} />
+        </TabsContent>
+      </Tabs>
+    </div>
+  )
+}

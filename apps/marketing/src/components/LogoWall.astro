@@ -1,0 +1,171 @@
+---
+// Brand logos — official assets from each vendor.
+//
+// Sources (all permissive / public marketing assets):
+//   anthropic.svg   gilbarbara/logos    (canonical monochrome mark)
+//   openai.svg      gilbarbara/logos    (canonical monochrome mark)
+//   vercel.svg      gilbarbara/logos    (canonical mark)
+//   gemini.svg      gilbarbara/logos    (official multi-stop blue gradient)
+//   huggingface.svg gilbarbara/logos    (official full-color emoji)
+//   langchain.svg   github.com/langchain-ai org avatar  (official mark)
+//   crewai.svg      github.com/crewAIInc org avatar      (official mark)
+//   llamaindex.svg  llamaindex.ai favicon
+//
+// Layout: infinite marquee. Content is unchanged from the grid version;
+// only the visual treatment shifts to a continuous scroll (matches the
+// Hitachi Vantara `scrollDesktop` pattern — pure CSS, no JS, no deps).
+// The list is duplicated once so `translateX(-50%)` loops seamlessly.
+
+const logos = [
+  { href: 'https://www.anthropic.com',   name: 'Anthropic',    src: '/logos/anthropic.svg' },
+  { href: 'https://openai.com',          name: 'OpenAI',       src: '/logos/openai.svg' },
+  { href: 'https://www.langchain.com',   name: 'LangChain',    src: '/logos/langchain.svg' },
+  { href: 'https://www.crewai.com',      name: 'CrewAI',       src: '/logos/crewai.svg' },
+  { href: 'https://vercel.com/ai',       name: 'Vercel',       src: '/logos/vercel.svg' },
+  { href: 'https://gemini.google.com',   name: 'Gemini',       src: '/logos/gemini.svg' },
+  { href: 'https://www.llamaindex.ai',   name: 'LlamaIndex',   src: '/logos/llamaindex.svg' },
+  { href: 'https://huggingface.co',      name: 'Hugging Face', src: '/logos/huggingface.svg' },
+];
+---
+<section class="logo-wall">
+  <div class="container">
+    <p class="lw-eyebrow">Works with the agents you already ship — incl. LangGraph, AutoGen, Mastra</p>
+
+    <div class="marquee" aria-label="Compatible with these agent stacks">
+      <ul class="track" role="list">
+        {logos.map(l => (
+          <li>
+            <a class="logo" href={l.href} target="_blank" rel="noopener" aria-label={l.name}>
+              <img src={l.src} alt="" width="32" height="32" loading="lazy" />
+              <span class="logo-name">{l.name}</span>
+            </a>
+          </li>
+        ))}
+        {/* Duplicate for the seamless -50% loop. aria-hidden so screen
+            readers don't announce each logo twice. */}
+        {logos.map(l => (
+          <li aria-hidden="true">
+            <a class="logo" href={l.href} target="_blank" rel="noopener" tabindex="-1">
+              <img src={l.src} alt="" width="32" height="32" loading="lazy" />
+              <span class="logo-name">{l.name}</span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </div>
+  </div>
+</section>
+
+<style>
+  .logo-wall {
+    padding: 3rem 0;
+    background: var(--bg);
+    border-top: 1px solid var(--hairline);
+    border-bottom: 1px solid var(--hairline);
+  }
+  .lw-eyebrow {
+    text-align: center;
+    font-size: 0.78rem;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    margin: 0 auto 2rem;
+    font-weight: 500;
+    max-width: 56ch;
+  }
+
+  /* Marquee viewport — overflow hidden + edge fade via mask so logos
+     dissolve into the background instead of a hard cutoff. */
+  .marquee {
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      #000 8%,
+      #000 92%,
+      transparent 100%
+    );
+            mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      #000 8%,
+      #000 92%,
+      transparent 100%
+    );
+  }
+
+  /* The track holds 2× the logos (original + a11y-hidden duplicate).
+     Width is auto (content-sized); translateX(-50%) shifts by exactly
+     one copy so the loop is seamless. */
+  .track {
+    display: flex;
+    align-items: center;
+    gap: 2.5rem;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    width: max-content;
+    animation: marquee 32s linear infinite;
+    will-change: transform;
+  }
+  .marquee:hover .track,
+  .marquee:focus-within .track {
+    animation-play-state: paused;
+  }
+
+  @keyframes marquee {
+    from { transform: translateX(0);      }
+    to   { transform: translateX(-50%);   }
+  }
+
+  .track li { flex: 0 0 auto; }
+
+  .logo {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.55rem;
+    text-decoration: none;
+    color: var(--text);
+    transition: transform 0.18s ease, opacity 0.18s ease;
+    opacity: 0.82;
+    padding: 0 0.4rem;
+  }
+  .logo:hover,
+  .logo:focus-visible {
+    transform: translateY(-2px);
+    opacity: 1;
+  }
+  .logo img {
+    height: 32px;
+    width: 32px;
+    object-fit: contain;
+    display: block;
+  }
+  .logo-name {
+    font-family: var(--font-sans);
+    font-size: 0.72rem;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+  }
+
+  /* Respect user preference — no animation for reduced-motion users. */
+  @media (prefers-reduced-motion: reduce) {
+    .track {
+      animation: none;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 1.5rem 2rem;
+      width: 100%;
+    }
+    .marquee {
+      -webkit-mask-image: none;
+              mask-image: none;
+    }
+  }
+
+  @media (max-width: 620px) {
+    .track { gap: 1.75rem; }
+    .logo img { height: 28px; width: 28px; }
+    .logo-name { font-size: 0.68rem; }
+  }
+</style>

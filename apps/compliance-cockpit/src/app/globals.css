@@ -1,0 +1,351 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+
+    /* Light Mode — Crisp Vault Paper */
+    --background: 210 25% 98%;
+    --foreground: 222 40% 11%;
+    --sidebar: 214 24% 95%;
+    --sidebar-active: 214 26% 90%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 40% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 40% 11%;
+    --primary: 222 47% 14%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 214 22% 93%;
+    --secondary-foreground: 222 35% 18%;
+    --muted: 214 20% 93%;
+    --muted-foreground: 215 16% 42%;
+    --accent: 214 24% 91%;
+    --accent-foreground: 222 40% 11%;
+    --border: 214 20% 86%;
+    --input: 214 20% 84%;
+    --ring: 217 91% 54%;
+    --radius: 0.5rem;
+
+    /* Precision Brand Accent */
+    --brand: 217 91% 52%;
+
+    /* Semantic Status Tokens — Allow / Hold / Block */
+    --status-ok: 152 68% 36%;
+    --status-attn: 38 92% 44%;
+    --status-drift: 348 80% 50%;
+
+    --success-bg: 152 55% 94%;
+    --success-fg: 152 72% 24%;
+    --success-border: 152 42% 80%;
+
+    --warn-bg: 38 85% 94%;
+    --warn-fg: 34 86% 28%;
+    --warn-border: 38 65% 78%;
+
+    --danger-bg: 348 80% 95%;
+    --danger-fg: 348 76% 36%;
+    --danger-border: 348 60% 82%;
+
+    --specular-color: rgba(15, 23, 42, 0.05);
+  }
+
+  /*
+   * Dark mode — Deep Obsidian Architectural Dark Ramp (#080B12).
+   */
+  :root.dark,
+  :root[data-theme="dark"],
+  .dark {
+    --background: 222 36% 5%;       /* #080B12 */
+    --foreground: 214 25% 91%;      /* #E2E8F0 */
+    --sidebar: 222 32% 7%;          /* #0C1018 */
+    --sidebar-active: 222 26% 14%;
+    --card: 222 28% 9.5%;           /* #111622 */
+    --card-foreground: 214 25% 91%;
+    --popover: 222 28% 10%;
+    --popover-foreground: 214 25% 91%;
+    --primary: 214 32% 94%;
+    --primary-foreground: 222 36% 7%;
+    --secondary: 222 24% 13.5%;     /* #1A2130 */
+    --secondary-foreground: 214 22% 88%;
+    --muted: 222 24% 13.5%;
+    --muted-foreground: 215 16% 58%; /* #8492A6 */
+    --accent: 222 24% 16%;
+    --accent-foreground: 214 25% 92%;
+    --border: 222 22% 18%;          /* #222B3D */
+    --input: 222 22% 20%;
+    --ring: 217 91% 60%;
+
+    /* Precision Cobalt Accent */
+    --brand: 217 91% 60%;
+
+    /* Semantic Status Tokens (Dark-Safe High Contrast) */
+    --status-ok: 152 68% 48%;
+    --status-attn: 38 92% 58%;
+    --status-drift: 348 82% 62%;
+
+    --success-bg: 152 60% 14%;
+    --success-fg: 152 72% 68%;
+    --success-border: 152 50% 26%;
+
+    --warn-bg: 38 64% 14%;
+    --warn-fg: 38 92% 72%;
+    --warn-border: 38 55% 28%;
+
+    --danger-bg: 348 56% 15%;
+    --danger-fg: 348 86% 74%;
+    --danger-border: 348 50% 28%;
+
+    --specular-color: rgba(148, 163, 184, 0.11);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not(.light):not([data-theme="light"]) {
+      --background: 222 36% 5%;
+      --foreground: 214 25% 91%;
+      --sidebar: 222 32% 7%;
+      --sidebar-active: 222 26% 14%;
+      --card: 222 28% 9.5%;
+      --card-foreground: 214 25% 91%;
+      --popover: 222 28% 10%;
+      --popover-foreground: 214 25% 91%;
+      --primary: 214 32% 94%;
+      --primary-foreground: 222 36% 7%;
+      --secondary: 222 24% 13.5%;
+      --secondary-foreground: 214 22% 88%;
+      --muted: 222 24% 13.5%;
+      --muted-foreground: 215 16% 58%;
+      --accent: 222 24% 16%;
+      --accent-foreground: 214 25% 92%;
+      --border: 222 22% 18%;
+      --input: 222 22% 20%;
+      --ring: 217 91% 60%;
+      --brand: 217 91% 60%;
+      --status-ok: 152 68% 48%;
+      --status-attn: 38 92% 58%;
+      --status-drift: 348 82% 62%;
+      --success-bg: 152 60% 14%;
+      --success-fg: 152 72% 68%;
+      --success-border: 152 50% 26%;
+      --warn-bg: 38 64% 14%;
+      --warn-fg: 38 92% 72%;
+      --warn-border: 38 55% 28%;
+      --danger-bg: 348 56% 15%;
+      --danger-fg: 348 86% 74%;
+      --danger-border: 348 50% 28%;
+      --specular-color: rgba(148, 163, 184, 0.11);
+    }
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  html { color-scheme: light dark; }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.55;
+  }
+  h1, h2 {
+    font-family: var(--font-geist-sans), system-ui, sans-serif;
+    font-weight: 600;
+    letter-spacing: -0.022em;
+    line-height: 1.15;
+  }
+  h3, h4 {
+    font-family: var(--font-geist-sans), system-ui, sans-serif;
+    letter-spacing: -0.012em;
+    font-weight: 600;
+  }
+  code, pre, .font-mono {
+    font-family: var(--font-geist-mono), 'JetBrains Mono', 'Fira Code', monospace;
+  }
+  /* Theme-Safe Select with custom chevron */
+  select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394A3B8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.65rem center;
+    background-size: 14px 14px;
+    padding-right: 1.85rem;
+    background-color: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    border-radius: 6px;
+    color: hsl(var(--foreground));
+    font: inherit;
+    line-height: 1.4;
+    cursor: pointer;
+  }
+  select:focus { outline: 2px solid hsl(var(--ring) / 0.4); outline-offset: 1px; }
+}
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.45); }
+
+@keyframes trace-slide-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes trace-glow {
+  0%   { box-shadow: 0 0 0 0 hsl(38 20% 46% / 0.25); }
+  40%  { box-shadow: 0 0 0 4px hsl(38 20% 46% / 0.12); }
+  100% { box-shadow: 0 0 0 0 hsl(38 20% 46% / 0); }
+}
+
+/* ============================================================================
+   Calibrated 3D Spatial Utilities & Keyframes
+   ============================================================================ */
+
+.card-depth {
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.05), 0 1px 2px 0 rgba(0, 0, 0, 0.12);
+}
+
+:root.dark .card-depth,
+:root[data-theme="dark"] .card-depth,
+.dark .card-depth {
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.07), 0 2px 8px -2px rgba(0, 0, 0, 0.4);
+}
+
+.perspective-1000 {
+  perspective: 1000px;
+}
+
+.card-depth-hover {
+  transition: transform 180ms var(--ease-out), box-shadow 180ms var(--ease-out), border-color 180ms var(--ease-out);
+}
+
+.card-depth-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.1), 0 8px 20px -4px rgba(0, 0, 0, 0.45);
+}
+
+.tilt-3d {
+  position: relative;
+  transform-style: preserve-3d;
+  transition:
+    transform 220ms var(--ease-out),
+    border-color 180ms var(--ease-out),
+    box-shadow 220ms var(--ease-out);
+  will-change: transform;
+}
+
+.tilt-3d::after {
+  content: '';
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  background: radial-gradient(
+    280px circle at var(--mx, 50%) var(--my, 50%),
+    var(--specular-color),
+    transparent 65%
+  );
+  transition: opacity 200ms var(--ease-out);
+}
+
+.tilt-3d:hover::after {
+  opacity: 1;
+}
+
+.z-pop {
+  transform: translateZ(10px);
+}
+
+/* 3D Perspective Route Transition */
+@keyframes pageWarpIn3D {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 10px, -36px) rotateX(1.6deg);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) rotateX(0deg);
+  }
+}
+
+.page-warp-in {
+  animation: pageWarpIn3D 380ms var(--ease-out) both;
+}
+
+/* Staggered List / KPI Entrance */
+@keyframes staggerFadeUp {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.stagger-in {
+  animation: staggerFadeUp 320ms var(--ease-out) both;
+  animation-delay: calc(min(var(--stagger-index, 0), 6) * 45ms);
+}
+
+/* 3D Modal Pop (Passkey & Command Palette) */
+@keyframes passkeyModalPop {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 12px, -24px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.passkey-modal-pop {
+  animation: passkeyModalPop 220ms var(--ease-out) both;
+}
+
+/* Approvals Queue Exit Collapse */
+.approval-card-exit {
+  opacity: 0 !important;
+  transform: translate3d(18px, -4px, 0) scale(0.98) !important;
+  max-height: 0 !important;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  overflow: hidden;
+  border-width: 0 !important;
+  transition:
+    opacity 240ms var(--ease-out),
+    transform 280ms var(--ease-out),
+    max-height 340ms var(--ease-out),
+    padding 340ms var(--ease-out),
+    margin 340ms var(--ease-out);
+}
+
+/* Instant accessible keyboard focus ring */
+:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+/* Strict Reduced-Motion Overrides */
+@media (prefers-reduced-motion: reduce) {
+  .tilt-3d,
+  .tilt-3d::after,
+  .card-depth-hover,
+  .page-warp-in,
+  .stagger-in,
+  .passkey-modal-pop,
+  .approval-card-exit {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
+}

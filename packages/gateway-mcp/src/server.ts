@@ -1,0 +1,1314 @@
+import express from 'express';
+import { WebSocketServer } from 'ws';
+import { createServer } from 'http';
+import pino from 'pino';
+import { config, isFeatureEnabled, FEATURE_GATES } from './config';
+import { initializeDatabase, getOrCreateDashboardKey } from './db/database';
+import { MCPProxyService } from './mcp/proxy-service';
+import { AegisMcpServer } from './mcp/aegis-mcp-server';
+import { TraceAPI } from './api/traces';
+import { PolicyAPI } from './api/policies';
+import { ApprovalAPI } from './api/approvals';
+import { ContextAPI } from './api/context';
+import { ContextLedgerStore } from './services/context-ledger-store';
+import { CheckAPI } from './api/check';
+import { AgentsAPI } from './api/agents';
+import { LicenseAPI } from './api/license';
+import { LicenseService } from './services/license-service';
+import { OnboardingAPI } from './api/onboarding';
+import { RollbackAPI } from './api/rollback';
+import { WorkflowAPI } from './api/workflow';
+import { WorkflowExtractorService } from './services/workflow/extractor';
+import { RollbackService } from './services/rollback';
+import { ReversibilityClassifier } from './services/reversibility';
+import { CompensationRegistry } from './services/compensation-registry';
+import { SnapshotCaptureService } from './services/snapshot-capture';
+import { SagaService } from './services/saga';
+import { RollbackMetricsService } from './services/rollback-metrics';
+import { DlqService } from './services/dlq';
+import { WitnessService } from './services/witness';
+import { WitnessAPI } from './api/witness';
+import { EffectOutboxService } from './services/effect-outbox';
+import { PredeployScanService } from './services/predeploy-scan';
+import { ScanHistoryService } from './services/scan-history';
+import { PredeployScanAPI } from './api/predeploy-scan';
+import { PolicyEngine } from './policies/policy-engine';
+import { KillSwitchService } from './services/kill-switch';
+import { WebhookService } from './services/webhooks';
+import { WebhookAPI } from './api/webhooks';
+import { ProxyRegistryAPI } from './api/proxy-registry';
+import { McpToolsAPI } from './api/mcp-tools';
+import { ChainAnchorService } from './services/chain-anchor';
+import { ReceiptService } from './services/receipts';
+import { SlidingWindowStats } from './services/sliding-window';
+import { AnomalyDetector } from './services/anomaly-detector';
+import { TenantBaselineService } from './services/tenant-baseline';
+import { ProfileManager } from './services/profile-manager';
+import { createErrorMiddleware, HttpError } from './middleware/error';
+import { createAuthMiddleware } from './middleware/auth';
+import { requestContextMiddleware } from './middleware/request-context';
+import { initOtel, shutdownOtel } from './services/otel';
+import { LLMJudgeService } from './services/llm-judge';
+import { initializeEnterpriseSchema } from './db/enterprise-schema';
+import { AuditLogService } from './services/audit-log';
+import { RBACService } from './services/rbac';
+import { RetentionService } from './services/retention';
+import { UsageMeteringService } from './services/usage-metering';
+import { SLAMetricsService } from './services/sla-metrics';
+import { GatewayMetricsService } from './services/gateway-metrics';
+import { AdminAPI } from './api/admin';
+import { ConfigBus, type ConfigEvent } from './services/config-bus';
+import { TenantConfigService } from './services/tenant-config';
+import { TenantConfigAPI } from './api/tenant-config';
+import { DslPolicyService } from './services/policy-dsl';
+import { PolicyDslAPI } from './api/policy-dsl';
+import { NlPolicyCompilerService } from './services/nl-policy-compiler';
+import { pickLlmClient } from './services/llm-clients';
+import { AlignmentAPI } from './api/alignment';
+import { CodeShieldAPI } from './api/code-shield';
+import { IntegrityAPI } from './api/integrity';
+import { EvidencePackAPI } from './api/evidence-pack';
+import { AuthAPI } from './api/auth';
+import { SessionService } from './services/session';
+import { MockIdpAdapter } from './services/idp-adapter';
+import { IdpFactory } from './services/idp-factory';
+import {
+  DetectorRegistry,
+  PiiDetector,
+  ClassifierDetector,
+  AnomalyDetectorPlugin,
+  BudgetDetector,
+  ToolScopeDetector,
+  DiscoveryDetector,
+  ExfilDetector,
+  LateralMovementDetector,
+  CrossAgentDetector,
+  MemoryPoisonDetector,
+  IpiDetector,
+  SensitiveExfilDetector,
+} from './detectors';
+import { CrossAgentCorrelatorService } from './services/cross-agent-correlator';
+import { TaintTrackerService } from './services/taint-tracker';
+import { BudgetGuardService } from './services/budget-guard';
+import { CoverageMapService } from './services/coverage-map';
+import { OntologyAPI } from './api/ontology';
+import { ComplianceBundleService } from './services/compliance-bundle';
+import { ComplianceControlSource } from './services/compliance-source';
+import { ComplianceAPI } from './api/compliance';
+import { ComplianceEvidenceAPI } from './api/compliance-evidence';
+import { ScimService } from './services/scim-service';
+import { ScimAPI } from './api/scim';
+import { BankingStores } from './db/banking-stores';
+import { CustomerAuthService } from './services/customer-auth';
+import { CustomerAPI } from './api/customer';
+import { BankingAgentIdentityService } from './services/banking-agent-identity';
+import { PermitEngineService } from './services/permit-engine';
+import { AgentBankingAPI } from './api/agent-banking';
+import { KeyManagementApi } from './api/keys';
+import { AttackLabAPI } from './api/attack-lab';
+import { EnterpriseOidcService } from './services/enterprise-oidc-service';
+import { WebAuthnService } from './services/webauthn-service';
+import { TransactionApprovalService } from './services/transaction-approval-service';
+import { SinkOrchestrator } from './services/sink-orchestrator';
+import { SinksAPI } from './api/sinks';
+import { BudgetAPI } from './api/budget';
+import { OtlpExporterService } from './services/otlp-exporter';
+import { ObservabilityAPI } from './api/observability';
+import { AgentRegistryService } from './services/agent-registry';
+import { AgentIdCardService } from './services/agent-id-card';
+import { CustomDetectorService } from './services/custom-detector-service';
+import { CustomDetectorAPI } from './api/custom-detectors';
+import { TemplateRegistryService } from './services/template-registry';
+import { TemplatesAPI } from './api/templates';
+import { TransparencyLogService } from './services/transparency-log';
+import { TransparencyLogAPI } from './api/transparency-log';
+import { SigningService } from './services/signing';
+import { SqliteBillingStore } from './db/billing-store';
+import { BillingService, billingMiddleware } from './services/billing';
+import { StripeWebhookAPI } from './api/stripe';
+import {
+  ProxyHandler,
+  OpenAIChatAdapter,
+  AnthropicMessagesAdapter,
+  MistralChatAdapter,
+  GeminiGenerateAdapter,
+} from './proxy';
+
+const VERSION = '2.0.0';
+
+// ── Logger ─────────────────────────────────────────────────────────────────
+// All logs go to stderr (fd 2). Critical when this process is launched as
+// an MCP stdio server (or piped through mcp2cli) — stdout must carry pure
+// JSON-RPC for the protocol to parse. Reported by githb-ac in #4.
+const logDest = pino.destination(2);
+const logger = config.server.isProduction
+  ? pino({ level: process.env.LOG_LEVEL || 'info' }, logDest)
+  : pino(
+      {
+        transport: {
+          target: 'pino-pretty',
+          options: {
+            translateTime: 'HH:MM:ss Z',
+            ignore: 'pid,hostname',
+            destination: 2,  // pino-pretty's own stderr knob
+          },
+        },
+      },
+    );
+
+async function main() {
+  const startTime = Date.now();
+
+  // Initialize OpenTelemetry (before anything else)
+  initOtel();
+
+  // Initialize database
+  logger.info('Initializing database...');
+  const db = await initializeDatabase(config.database.path);
+
+  // Enterprise schema (multi-tenancy, RBAC, audit log, retention, usage, SLA)
+  initializeEnterpriseSchema(db);
+
+  // Dashboard API key (auto-generated on first start)
+  const dashboardKey = getOrCreateDashboardKey(db);
+  if (!config.server.isProduction) {
+    logger.info({ key: dashboardKey }, 'Dashboard API key (add to Settings)');
+  }
+
+  // Initialize services
+  const policyEngine  = new PolicyEngine(db, logger);
+  const killSwitch    = new KillSwitchService(db, logger);
+  const webhooks      = new WebhookService(db, logger);
+  const aegisMcp      = new AegisMcpServer(db, logger);
+  const requireAuth   = createAuthMiddleware(db);
+
+  // Anomaly detection engine
+  const slidingWindow   = new SlidingWindowStats(
+    config.anomaly.slidingWindow.maxAgents,
+    config.anomaly.slidingWindow.bufferSize,
+  );
+  const tenantBaseline  = new TenantBaselineService(db, logger);
+  const anomalyDetector = new AnomalyDetector(
+    slidingWindow,
+    undefined,
+    config.anomaly.thresholds,
+    config.anomaly.isolationForest,
+    config.anomaly.ppm,
+    tenantBaseline,
+  );
+  const profileManager  = new ProfileManager(db, logger, {
+    minTraces: config.anomaly.minTraces,
+    graduationTraces: config.anomaly.graduationTraces,
+    windowDays: config.anomaly.profileWindowDays,
+    rebuildIntervalMs: config.anomaly.profileRebuildIntervalHours * 3600 * 1000,
+  });
+  await profileManager.initialize();
+
+  // Enterprise services
+  const auditLog      = new AuditLogService(db, logger);
+  const rbac          = new RBACService(db, logger);
+  const retention     = new RetentionService(db, logger);
+  const usageMetering = new UsageMeteringService(db, logger);
+  const slaMetrics    = new SLAMetricsService(db, logger);
+  const gatewayMetrics = new GatewayMetricsService();
+
+  // Per-tenant runtime config (deployment mode, layer toggles, thresholds)
+  const configBus     = new ConfigBus(logger);
+  const tenantConfig  = new TenantConfigService(db, logger, configBus, auditLog);
+  const templateRegistry = new TemplateRegistryService(db, logger);
+  tenantConfig.setTemplateLookup(templateRegistry);
+  tenantConfig.seedDefaults();
+
+  // Per-tenant policy DSL (fail-safe composer over classifier + AJV + anomaly)
+  const dslPolicy = new DslPolicyService(logger, configBus, tenantConfig);
+  const orgIds = db.prepare('SELECT id FROM organizations').all() as { id: string }[];
+  dslPolicy.warmCache(orgIds.map((o) => o.id));
+
+  // Detector registry — unified Signal contract over PII / classifier /
+  // anomaly + future tenant-supplied plugins. Built in parallel with the
+  // existing check.ts decision path; consumers can opt in incrementally.
+  const detectors = new DetectorRegistry({ logger });
+  detectors.register(new ClassifierDetector());
+  detectors.register(new PiiDetector());
+  if (config.anomaly.enabled) {
+    detectors.register(new AnomalyDetectorPlugin(anomalyDetector, profileManager));
+  }
+  const agentRegistry = new AgentRegistryService(db, logger);
+
+  // License service — loads persisted license on startup + starts
+  // the 24h revalidation loop. requireFeature() middleware reads
+  // license.getTier() so a Cockpit activation takes effect on the
+  // very next request without a gateway restart.
+  const license = new LicenseService(db, logger, config.license.tier);
+  license.startRevalidator();
+  const agentIdCards  = new AgentIdCardService(new SigningService(db, logger), agentRegistry);
+  const budgetGuard = new BudgetGuardService(db, tenantConfig, logger, agentRegistry);
+  detectors.register(new BudgetDetector(budgetGuard));
+  detectors.register(new ToolScopeDetector(agentRegistry));
+  detectors.register(new DiscoveryDetector());
+  detectors.register(new ExfilDetector());
+  detectors.register(new LateralMovementDetector());
+  detectors.register(new MemoryPoisonDetector());
+  detectors.register(new IpiDetector());
+  const crossAgent = new CrossAgentCorrelatorService({ logger });
+  detectors.register(new CrossAgentDetector(crossAgent));
+  const taintTracker = new TaintTrackerService({ logger });
+  detectors.register(new SensitiveExfilDetector(taintTracker));
+  const coverageMap = new CoverageMapService(detectors, tenantConfig);
+
+  // Universal sink fan-out. Subscribes to audit log + ConfigBus; every
+  // audit row routes to whatever http/syslog/stdout sinks the tenant has
+  // declared in tenant_config.sinks. Customer SIEM integration becomes
+  // a config write, not a code release.
+  const sinkOrchestrator = new SinkOrchestrator(logger, auditLog, tenantConfig, configBus);
+  sinkOrchestrator.start(orgIds.map((o) => o.id));
+
+  // Custom detector service — registers operator-uploaded declarative
+  // detectors with the live registry. Hot-reloads on tenant config
+  // change so a customer-specific detector goes live on the next call,
+  // no restart, no PR to AEGIS.
+  const customDetectors = new CustomDetectorService(logger, detectors, tenantConfig, configBus);
+  customDetectors.start(orgIds.map((o) => o.id));
+
+  // OTLP trace exporter — per-tenant polling job that ships trace rows
+  // out as OpenTelemetry spans to whatever otlp/v1/traces endpoint the
+  // customer pointed AEGIS at (Datadog, Honeycomb, Grafana Tempo,
+  // New Relic, OTel collector — all accept the same JSON shape).
+  const otlpExporter = new OtlpExporterService(db, logger, tenantConfig, configBus);
+  otlpExporter.start(orgIds.map((o) => o.id));
+
+  // Transparency log — RFC 6962 Merkle tree over audit + evidence-pack
+  // events, signed with the gateway's existing Ed25519 evidence key.
+  // Every audit row also appends here so customers can verify inclusion
+  // offline without trusting us to replay our own log.
+  const transparencyLog = new TransparencyLogService(db, new SigningService(db, logger), logger);
+  auditLog.subscribe(entry => {
+    try {
+      transparencyLog.append({
+        payload: {
+          action: entry.action,
+          resource_type: entry.resource_type,
+          resource_id: entry.resource_id,
+          user_email: entry.user_email,
+          user_id: entry.user_id,
+          ip_address: entry.ip_address,
+          details: entry.details,
+          timestamp: entry.timestamp,
+        },
+        source: 'audit',
+        org_id: entry.org_id,
+      });
+    } catch (err) {
+      logger.warn({ err: (err as Error).message }, 'transparency log append failed');
+    }
+  });
+
+  // MCP proxy (instantiated after dslPolicy + tenantConfig so DSL flows through)
+  const mcpProxy = new MCPProxyService(db, policyEngine, killSwitch, logger, dslPolicy, tenantConfig);
+
+  // ── Rollback layer (saga-style compensating actions) ───────────────────
+  // Tied to transparencyLog so every rollback writes a signed Merkle
+  // receipt — the cryptographic differentiator vs seclaw / NeMo.
+  const reversibilityClassifier = new ReversibilityClassifier();
+  const compensationRegistry    = new CompensationRegistry(logger);
+  const snapshotCapture         = new SnapshotCaptureService(db, logger);
+  const sagaService             = new SagaService(db, logger);
+  const rollbackMetrics         = new RollbackMetricsService();
+  const dlqService              = new DlqService(db, logger);
+  const witnessService          = new WitnessService(db, logger, transparencyLog, new SigningService(db, logger));
+  const rollbackService         = new RollbackService(
+    db, logger, auditLog, transparencyLog, compensationRegistry, reversibilityClassifier,
+    snapshotCapture, sagaService, rollbackMetrics, dlqService,
+  );
+  // Hot-reload tenant-supplied reversibility overrides + compensators
+  // from tenant_config.rollback whenever it changes.
+  const loadRollbackConfig = (orgId: string) => {
+    try {
+      const tc = tenantConfig.get(orgId);
+      // `rollback` isn't yet in the TenantConfigSchema (it's read here as
+      // an "experimental" namespace tenants can set freely via
+      // settings.rollback.*). The schema gap is a deliberate TODO —
+      // once the rollback config surface stabilises it should be added
+      // to core-schema's TenantConfigSchema with proper Zod validation
+      // so per-tenant nonsense can't crash the loader silently.
+      const r = ((tc as any)?.rollback ?? {}) as {
+        reversibility_overrides?: unknown[];
+        compensators?: unknown;
+        snapshots?: unknown;
+        outbox?: unknown;
+      };
+      if (Array.isArray(r.reversibility_overrides)) {
+        reversibilityClassifier.setOverrides(r.reversibility_overrides as any);
+      }
+      compensationRegistry.setConfig(orgId, r.compensators ? { compensators: r.compensators as any } : null);
+      snapshotCapture.setConfig(orgId, r.snapshots ? { snapshots: r.snapshots as any } : null);
+    } catch (err) {
+      logger.warn({ err: (err as Error).message, orgId }, 'rollback config load failed');
+    }
+  };
+  for (const o of orgIds) loadRollbackConfig(o.id);
+  configBus.onConfigChange((evt: ConfigEvent) => {
+    if (evt?.orgId) loadRollbackConfig(evt.orgId);
+  });
+
+  // ── Effect outbox (delayed-effect queue) ───────────────────────────────
+  // External side effects (email send, payment, social post) that the
+  // operator wants to be able to cancel-before-fire go through here.
+  // Configured via tenant_config.rollback.outbox.
+  const effectOutbox = new EffectOutboxService(db, logger, auditLog, transparencyLog);
+  const loadOutboxConfig = (orgId: string) => {
+    try {
+      const tc = tenantConfig.get(orgId);
+      // See loadRollbackConfig — rollback is an as-yet unschematised
+      // namespace, cast narrowly here so the next dev knows it's intentional.
+      const r = ((tc as any)?.rollback ?? {}) as { outbox?: unknown };
+      effectOutbox.setConfig(orgId, r.outbox ? { tools: r.outbox as any } : null);
+    } catch (err) {
+      logger.warn({ err: (err as Error).message, orgId }, 'outbox config load failed');
+    }
+  };
+  for (const o of orgIds) loadOutboxConfig(o.id);
+  configBus.onConfigChange((evt: ConfigEvent) => {
+    if (evt?.orgId) loadOutboxConfig(evt.orgId);
+  });
+  effectOutbox.startDispatcher();
+
+  // ── Pre-deployment scan (agent-audit subprocess) ───────────────────────
+  // Static AST scan that runs BEFORE traffic flows; complements the
+  // runtime audit / rollback layers. Shells out to HeadyZhang/agent-audit
+  // (MIT) which we discovery-resolve at request time.
+  const predeployScan = new PredeployScanService(logger, auditLog, transparencyLog);
+  const scanHistory   = new ScanHistoryService(db, logger);
+
+  // Start background schedulers
+  if (isFeatureEnabled('data-retention')) {
+    retention.start(3600_000);
+  }
+  if (isFeatureEnabled('sla-metrics')) {
+    slaMetrics.start(60_000);
+  }
+
+  // ── Express app ──────────────────────────────────────────────────────────
+  const app = express();
+  app.use(express.json({ limit: config.bodyParser.jsonLimit }));
+
+  // Request ID + access logging (before everything else)
+  app.use(requestContextMiddleware(logger));
+
+  // Prometheus middleware — must mount BEFORE any route handler so the
+  // res.on('finish') callback observes the final status code + matched
+  // route template. Mounted unconditionally because the metrics are
+  // cardinality-bounded and Ops teams universally expect /metrics.
+  app.use(gatewayMetrics.httpMiddleware());
+
+  // CORS — production-safe origin handling
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    const allowed = config.cors.allowedOrigins;
+
+    if (allowed && allowed.length > 0) {
+      // Strict: only allow configured origins
+      if (origin && allowed.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Vary', 'Origin');
+      }
+    } else if (!config.server.isProduction) {
+      // Dev mode: reflect origin for convenience
+      res.setHeader('Access-Control-Allow-Origin', origin || '*');
+    } else {
+      // Production without config: no wildcard, require ALLOWED_ORIGINS
+      if (origin) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Vary', 'Origin');
+      }
+    }
+
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key, X-Request-ID');
+    res.setHeader('Access-Control-Expose-Headers', 'X-Request-ID, X-RateLimit-Remaining, X-RateLimit-Reset');
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+    next();
+  });
+
+  // Security headers (OWASP A05:2021 — Security Misconfiguration)
+  app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-XSS-Protection', '0');
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    // Gateway is API-only; it serves no HTML to a browser, so even
+    // legitimate inline styles never apply. Drop `unsafe-inline` from
+    // style-src so a future regression that does emit HTML inherits a
+    // strict baseline. style-src 'self' is the right "no inline styles"
+    // signal a security review wants to see.
+    res.setHeader(
+      'Content-Security-Policy',
+      "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https:; connect-src 'self'; frame-ancestors 'none'",
+    );
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+    next();
+  });
+
+  // ── Health / readiness probes ────────────────────────────────────────────
+  // Both `/health` (the conventional probe path that Docker/K8s hit) and
+  // `/api/v1/health` (the SaaS-style versioned path that Cockpit's Next.js
+  // proxy and most SDK pollers expect) are wired to the same handler.
+  // Reported by githb-ac in #4.
+  const healthHandler = (req: any, res: any) => {
+    try {
+      db.prepare('SELECT 1').get();
+      res.json({
+        status: 'ok',
+        version: VERSION,
+        uptime_s: Math.floor(process.uptime()),
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      res.status(503).json({
+        status: 'unhealthy',
+        version: VERSION,
+        timestamp: new Date().toISOString(),
+        error: 'database_unavailable',
+      });
+    }
+  };
+  app.get('/health', healthHandler);
+  app.get('/api/v1/health', healthHandler);
+
+  app.get('/ready', (req, res) => {
+    try {
+      db.prepare('SELECT 1').get();
+      // Check that critical tables exist
+      db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='traces'").get();
+      res.json({ ready: true });
+    } catch {
+      res.status(503).json({ ready: false });
+    }
+  });
+
+  // Prometheus scrape target — convention says no auth, but the path
+  // SHOULD be network-restricted by the operator's ingress (k8s service
+  // type ClusterIP, AWS SG, etc.). We keep the convention so Grafana
+  // Agent / vmagent / cloud-managed Prometheus all "just work".
+  app.get('/metrics', (req, res) => {
+    res.setHeader('Content-Type', 'text/plain; version=0.0.4');
+    res.status(200).send(gatewayMetrics.prometheus());
+  });
+
+  // Auth bootstrap: return key (disabled in production per access-control policy unless explicitly enabled)
+  app.get('/api/v1/auth/key', (req, res) => {
+    if (config.server.isProduction && process.env.ALLOW_AUTH_BOOTSTRAP !== 'true') {
+      logger.warn({ ip: req.ip, req_id: req.requestId }, 'Auth bootstrap endpoint denied in production');
+      return res.status(403).json({
+        error: {
+          code: 'BOOTSTRAP_DISABLED',
+          message: 'The /api/v1/auth/key bootstrap endpoint is disabled in production environments. Configure GATEWAY_API_KEY explicitly.',
+        },
+      });
+    }
+    const row = db.prepare('SELECT value FROM gateway_config WHERE key = ?').get('dashboard_api_key') as { value: string } | undefined;
+    res.json({ api_key: row?.value ?? null });
+  });
+
+  // Auth regenerate (requires current key)
+  app.post('/api/v1/auth/regenerate', requireAuth, (req, res) => {
+    const { randomUUID } = require('crypto');
+    const newKey = randomUUID();
+    db.prepare('INSERT OR REPLACE INTO gateway_config (key, value) VALUES (?, ?)').run('dashboard_api_key', newKey);
+    auditLog.log({
+      org_id: req.orgId, action: 'apikey.regenerate', resource_type: 'apikey',
+      details: { regenerated: true }, ip_address: req.ip,
+    });
+    logger.info('Dashboard API key regenerated');
+    res.json({ api_key: newKey });
+  });
+
+  // ── Rate limiter (sliding window, per agent_id) ──────────────────────────
+  // We cap distinct keys at RATE_LIMIT_MAX_KEYS to bound memory: a
+  // burst of attacker-controlled org_id:agent_id combinations cannot
+  // cause unbounded Map growth → OOM. When the map fills we evict the
+  // oldest key (the one whose most-recent timestamp is furthest in the
+  // past) — same LRU-ish strategy as the SCIM discovery limiter.
+  const rateLimitWindow = new Map<string, number[]>();
+  const RATE_LIMIT_MAX = config.rateLimit.max;
+  const RATE_LIMIT_MS  = config.rateLimit.windowMs;
+  const RATE_LIMIT_MAX_KEYS = Math.max(
+    1_000,
+    Number(process.env.AEGIS_RATE_LIMIT_MAX_KEYS ?? 50_000),
+  );
+
+  function evictOldestRateLimitKey(): void {
+    let oldestKey: string | null = null;
+    let oldestTs = Infinity;
+    for (const [k, ts] of rateLimitWindow) {
+      const newest = ts.length > 0 ? ts[ts.length - 1] : 0;
+      if (newest < oldestTs) { oldestTs = newest; oldestKey = k; }
+    }
+    if (oldestKey) rateLimitWindow.delete(oldestKey);
+  }
+
+  // Cleanup stale entries every 5 minutes
+  const rateLimitCleanup = setInterval(() => {
+    const now = Date.now();
+    for (const [key, timestamps] of rateLimitWindow) {
+      const active = timestamps.filter(t => now - t < RATE_LIMIT_MS);
+      if (active.length === 0) rateLimitWindow.delete(key);
+      else rateLimitWindow.set(key, active);
+    }
+  }, 5 * 60_000);
+
+  // ── Stripe billing (plan-aware quota gate) ─────────────────────────────
+  // The BillingStore mirrors Stripe subscription state (active plan,
+  // status, period boundaries) so the gateway hot-path can gate every
+  // request in O(1) without an outbound API call. Updates land via the
+  // webhook handler at /api/v1/stripe/webhook on customer.subscription.*
+  // events from Stripe. The middleware on /api/v1/check turns "over plan
+  // cap" into a 429 with Retry-After for Free; Pro/Team get billed
+  // overage instead. Webhook signature verification uses
+  // STRIPE_WEBHOOK_SECRET; if unset the webhook route returns 503 so a
+  // misconfigured deploy fails loud.
+  const billingStore = new SqliteBillingStore(db);
+  await billingStore.init();
+  const billing = new BillingService(billingStore, logger);
+  app.use('/api/v1/stripe', new StripeWebhookAPI(billingStore, logger).router);
+  // Apply quota AFTER the existing rate-limit middleware so 429s from
+  // abuse get bounced before we even look at the customer's plan.
+  app.use('/api/v1/check', (req, res, next) => {
+    if (req.method !== 'POST') return next();
+    return billingMiddleware(billing)(req, res, next);
+  });
+
+  app.use('/api/v1/check', (req, res, next) => {
+    if (req.method !== 'POST') return next();
+    // Composite key isolates tenants — one noisy tenant cannot exhaust
+    // counters for another. /check is unauthenticated, so req.orgId may be
+    // undefined; default to a sentinel so it slots into the same key space.
+    const orgKey = (req as any).orgId || 'public';
+    const agentKey = req.body?.agent_id || req.ip || 'unknown';
+    const key = `${orgKey}:${agentKey}`;
+    const now = Date.now();
+    const timestamps = (rateLimitWindow.get(key) || []).filter(t => now - t < RATE_LIMIT_MS);
+    const remaining = RATE_LIMIT_MAX - timestamps.length;
+
+    // Rate limit headers
+    res.setHeader('X-RateLimit-Limit', RATE_LIMIT_MAX);
+    res.setHeader('X-RateLimit-Remaining', Math.max(0, remaining - 1));
+    res.setHeader('X-RateLimit-Reset', new Date(now + RATE_LIMIT_MS).toISOString());
+
+    if (remaining <= 0) {
+      return res.status(429).json({
+        error: { code: 'RATE_LIMITED', message: 'Rate limit exceeded', retry_after_ms: RATE_LIMIT_MS },
+      });
+    }
+    timestamps.push(now);
+    // Enforce cap BEFORE inserting so we don't grow past the limit even
+    // for one tick. New keys steal the oldest key's slot — legitimate
+    // traffic almost never hits this (50k orgs × 1 agent each = quiet
+    // org evictions only); pathological cardinality (DoS) does.
+    if (!rateLimitWindow.has(key) && rateLimitWindow.size >= RATE_LIMIT_MAX_KEYS) {
+      evictOldestRateLimitKey();
+    }
+    rateLimitWindow.set(key, timestamps);
+    next();
+  });
+
+  // SLA latency tracking middleware (all /api routes)
+  if (isFeatureEnabled('sla-metrics')) {
+    app.use('/api', (req, res, next) => {
+      const start = Date.now();
+      res.on('finish', () => {
+        const latency = Date.now() - start;
+        const endpoint = req.route?.path ?? req.path.replace(/\/[a-f0-9-]{20,}/, '/:id');
+        slaMetrics.record(endpoint, latency, res.statusCode < 500, req.orgId ?? 'default');
+      });
+      next();
+    });
+  }
+
+  // Usage metering middleware (track API calls per org)
+  if (isFeatureEnabled('usage-metering')) {
+    app.use('/api', (req, res, next) => {
+      res.on('finish', () => {
+        const orgId = req.orgId ?? 'default';
+        usageMetering.increment(orgId, 'api_calls', 1);
+        if (req.path.includes('/traces') && req.method === 'POST') {
+          usageMetering.increment(orgId, 'traces_per_month', 1);
+        }
+        if (req.path.includes('/judge') && req.method === 'POST') {
+          usageMetering.increment(orgId, 'judge_evals_per_month', 1);
+        }
+      });
+      next();
+    });
+  }
+
+  // ── Feature gate middleware ────────────────────────────────────────────────
+  // Reads the LICENSE SERVICE's live tier (not the static config
+  // one) so a Cockpit activation takes effect on the next request
+  // without a gateway restart. Also handles the license being
+  // revoked mid-session: the revalidator downgrades the in-memory
+  // tier and this middleware immediately starts returning 403.
+  function requireFeature(feature: string) {
+    return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+      const tiers = FEATURE_GATES[feature];
+      const allowed = !tiers || tiers.includes(license.getTier());
+      if (!allowed) {
+        return res.status(403).json({
+          error: {
+            code: 'FEATURE_UNAVAILABLE',
+            message: `Feature '${feature}' requires ${FEATURE_GATES_MSG[feature] || 'a higher'} license tier`,
+            current_tier: license.getTier(),
+          },
+        });
+      }
+      next();
+    };
+  }
+
+  const FEATURE_GATES_MSG: Record<string, string> = {
+    'anomaly': 'Pro or Enterprise',
+    'judge': 'Pro or Enterprise',
+    'multi-tenancy': 'Enterprise',
+    'rbac': 'Enterprise',
+    'audit-log': 'Enterprise',
+    'sla-metrics': 'Enterprise',
+    'data-retention': 'Enterprise',
+    'usage-metering': 'Enterprise',
+    'supply-chain': 'Pro or Enterprise',
+  };
+
+  // ── SDK ingest routes (public — no auth required) ────────────────────────
+  // requireAuth is idempotent for open routes — isOpenRoute() lets the
+  // SDK ingest paths (POST /api/v1/traces + /batch) through without a
+  // key. Everything else (GET /traces, POST /search, /saved-queries,
+  // /stats/cost) needs an authenticated req.orgId for tenant scoping.
+  // License hand-off from Cockpit UI. Not requireAuth-gated: the
+  // license key itself is the credential and it's validated
+  // against the marketing service, not the local API key store.
+  app.use('/api/v1/license', new LicenseAPI(license, logger).router);
+  app.use('/api/v1/traces', requireAuth, new TraceAPI(db, logger, agentRegistry).router);
+  // Per-session context ledgers for instruction provenance. Held in
+  // memory: read once per tool call on the hot path, and worthless once
+  // the session ends. A restart degrades live sessions to unassessed,
+  // which is the fail-soft direction.
+  const contextLedgers = new ContextLedgerStore();
+  app.use('/api/v1/context', new ContextAPI(logger, contextLedgers).router);
+
+  app.use('/api/v1/check',  new CheckAPI(
+    db, policyEngine, logger, webhooks, undefined,
+    config.anomaly.enabled ? anomalyDetector : undefined,
+    config.anomaly.enabled ? profileManager : undefined,
+    config.anomaly.enabled ? slidingWindow : undefined,
+    dslPolicy,
+    tenantConfig,
+    agentRegistry,
+    gatewayMetrics,
+    contextLedgers,
+    new ReceiptService(new SigningService(db, logger)),
+    killSwitch,
+    snapshotCapture,
+    effectOutbox,
+  ).router);
+
+  // Effect outbox, operator side: what is queued, and cancelling a call
+  // before the gateway dispatches it (zero side effect). trace_id is the
+  // check id /check returned with the queued decision.
+  app.get('/api/v1/outbox', requireAuth, (req, res) => {
+    const rows = db.prepare(
+      `SELECT id, trace_id, agent_id, tool_name, status, enqueued_at, dispatch_at, dispatched_at, error
+         FROM effect_outbox WHERE org_id = ? ORDER BY id DESC LIMIT 200`,
+    ).all((req as any).orgId ?? 'default');
+    res.json({ entries: rows });
+  });
+  app.post('/api/v1/outbox/cancel', requireAuth, (req, res) => {
+    const trace_id = typeof req.body?.trace_id === 'string' ? req.body.trace_id : '';
+    if (!trace_id) return res.status(400).json({ error: 'trace_id required' });
+    const r = effectOutbox.cancel({ orgId: (req as any).orgId ?? 'default', trace_id,
+      reason: typeof req.body?.reason === 'string' ? req.body.reason : undefined,
+      actor: { ip_address: req.ip } });
+    res.status(r.ok ? 200 : 409).json(r);
+  });
+
+  // ── Management routes (auth required) ────────────────────────────────────
+  app.use('/api/v1/policies',  requireAuth, new PolicyAPI(db, policyEngine, logger, auditLog).router);
+  app.use('/api/v1/approvals', requireAuth, new ApprovalAPI(db, logger).router);
+  app.use('/api/v1/webhooks',  requireAuth, new WebhookAPI(webhooks).router);
+  app.use('/api/v1/agents',    requireAuth, new AgentsAPI(db, logger, agentRegistry, auditLog, agentIdCards).router);
+  app.use('/api/v1/proxy',     requireAuth, new ProxyRegistryAPI(db, logger).router);
+  app.use('/api/v1/mcp',       requireAuth, new McpToolsAPI(db, logger, auditLog).router);
+
+  // First-run onboarding wizard hooks. SSE stream pushes
+  // agent.first_sighting events as soon as the SDK ingests its first
+  // trace; the Cockpit's /onboarding route hangs on it during step 3.
+  app.use('/api/v1/onboarding', requireAuth, new OnboardingAPI(agentRegistry, logger).router);
+  app.use('/api/v1/rollback',   requireAuth, new RollbackAPI(rollbackService, logger, sagaService, rollbackMetrics, dlqService).router);
+  app.use('/api/v1/scan',       requireAuth, new PredeployScanAPI(predeployScan, scanHistory, logger).router);
+  // WorkflowAPI is stateless — one service, no DB. Every extraction
+  // runs entirely in-memory over the uploaded source files.
+  app.use('/api/v1/workflow',   requireAuth, new WorkflowAPI(new WorkflowExtractorService(), logger, auditLog, dslPolicy).router);
+
+  // Enterprise admin routes (auth + feature gate)
+  app.use('/api/v1/admin', requireAuth, requireFeature('multi-tenancy'),
+    new AdminAPI(db, logger, rbac, auditLog, retention, usageMetering, slaMetrics).router);
+
+  // Per-tenant config (self-service, scoped to req.orgId)
+  app.use('/api/v1/config', requireAuth, new TenantConfigAPI(tenantConfig, logger).router);
+
+  // Per-tenant DSL (self-service)
+  // Phase 2 · NL policy compiler. LLM adapter is env-selected here:
+  //   · AEGIS_LOCAL_LLM_URL   → Ollama/vLLM/LM Studio (always allowed)
+  //   · ANTHROPIC/OPENAI key  → cloud, ONLY if AEGIS_OFFLINE unset
+  //   · neither               → heuristic-only fallback
+  // See services/llm-clients.ts for the env contract.
+  const nlLlm = pickLlmClient(process.env, logger);
+  const nlCompiler = new NlPolicyCompilerService(logger, nlLlm);
+  app.use('/api/v1/dsl', requireAuth,
+    new PolicyDslAPI(tenantConfig, dslPolicy, logger, nlCompiler).router);
+
+  // AEGIS Agent Threat Ontology + per-deployment coverage map.
+  // Customers use /coverage to answer "what does AEGIS detect today?"
+  // without taking a sales call. Tenant detectors register against the
+  // same registry and automatically extend the published coverage.
+  app.use('/api/v1/ontology', requireAuth, new OntologyAPI(coverageMap, tenantConfig).router);
+
+  // Universal sink runtime view + dry-fire. Sink CONFIG lives in
+  // /api/v1/config (whole tenant config). This endpoint exposes runtime
+  // metrics (sent / failed / DLQ depth / last error) per configured sink.
+  app.use('/api/v1/sinks', requireAuth, new SinksAPI(sinkOrchestrator, tenantConfig, logger).router);
+
+  // Custom detectors — operator-uploaded declarative detectors.
+  app.use('/api/v1/custom-detectors', requireAuth, new CustomDetectorAPI(tenantConfig, logger).router);
+
+  // Deployment template registry — built-ins + operator-registered customs.
+  app.use('/api/v1/templates', requireAuth, new TemplatesAPI(templateRegistry).router);
+
+  // Budget guard read-only status. Config goes through tenant-config PATCH.
+  app.use('/api/v1/budget', requireAuth, new BudgetAPI(budgetGuard).router);
+
+  // OTLP exporter status + manual flush. Config (endpoint, headers,
+  // interval) lives in /api/v1/config under observability.otlp.
+  app.use('/api/v1/observability', requireAuth, new ObservabilityAPI(otlpExporter).router);
+
+  // Transparency log — append-only Merkle tree of audit + evidence-pack
+  // events. Customers verify inclusion offline against the signed root.
+  app.use('/api/v1/transparency-log', requireAuth, new TransparencyLogAPI(transparencyLog).router);
+  // Witness protocol — external co-signing of STHs to prevent split-view
+  // attacks (Sigstore Rekor pattern).
+  app.use('/api/v1',                  requireAuth, new WitnessAPI(witnessService, logger).router);
+
+  // Per-framework compliance bundles (SOC 2 / ISO 27001 / NIST AI RMF /
+  // EU AI Act). Hands the auditor a signed, transparency-logged artifact
+  // mapping each control to the AEGIS evidence that demonstrates it.
+  const complianceSource = new ComplianceControlSource(tenantConfig);
+  const complianceBundles = new ComplianceBundleService(
+    db, logger, detectors, coverageMap,
+    new SigningService(db, logger),
+    complianceSource,
+    transparencyLog,
+  );
+  app.use(
+    '/api/v1/compliance',
+    requireAuth,
+    new ComplianceAPI(complianceBundles, auditLog, complianceSource, tenantConfig).router,
+  );
+  // SOC 2 evidence tap (auditor read-only). Sits on the same prefix as
+  // the framework-management API but exposes distinct routes
+  // (/evidence + /evidence/manifest).
+  app.use(
+    '/api/v1/compliance',
+    requireAuth,
+    new ComplianceEvidenceAPI(db, logger, gatewayMetrics, policyEngine).router,
+  );
+
+  // SCIM 2.0 — IdP-driven user provisioning. Auth is bearer-only (the
+  // IdP sends `Authorization: Bearer scim_...`). NOT under requireAuth
+  // because requireAuth speaks X-API-Key, which is the wrong auth shape
+  // for IdPs. The ScimAPI's own bearer middleware resolves the org_id.
+  const scimService = new ScimService(db, logger);
+  app.use('/scim/v2', new ScimAPI(scimService, logger).router);
+
+  // LLM egress proxy — universal substrate for "any workflow" coverage.
+  // Customer sets OPENAI_BASE_URL / ANTHROPIC_BASE_URL to this prefix and
+  // every LLM call passes through detector chain + audit + transparency.
+  // Auth: X-AEGIS-Key (their AEGIS key), Authorization / x-api-key forwarded
+  // to upstream untouched (BYO key). Routes use app.all so any method
+  // upstream supports (POST chat/completions, POST messages, etc.) works.
+  const proxyHandler = new ProxyHandler({
+    db, logger, detectors,
+    audit: auditLog,
+    adapters: [
+      new OpenAIChatAdapter(),
+      new AnthropicMessagesAdapter(),
+      new MistralChatAdapter(),
+      new GeminiGenerateAdapter(),
+    ],
+    agentRegistry,
+    agentIdCards,
+    crossAgent,
+    taintTracker,
+    dslPolicy,
+  });
+  // NOTE: no `requireAuth` here — the proxy authenticates via X-AEGIS-Key
+  // inside the handler since `Authorization` is reserved for the upstream
+  // provider's key (BYOK pass-through). Mounted at /llm-proxy/* to avoid
+  // collision with the MCP-server registry which owns /api/v1/proxy.
+  app.all('/api/v1/llm-proxy/*', proxyHandler.handle);
+
+  // Agent alignment auditor — LlamaFirewall-style CoT inspection.
+  // Standalone for v0.3 preview; SDKs that capture chain-of-thought
+  // call this pre-execution and pass alignment.* into /check.
+  app.use('/api/v1/alignment', requireAuth, requireFeature('judge'), new AlignmentAPI(logger, auditLog, db, contextLedgers).router);
+
+  // CodeShield — fast local regex scanner for agent-generated code.
+  // No LLM, no subprocess: every scan is sub-millisecond.
+  app.use('/api/v1/code-shield', requireAuth, new CodeShieldAPI(logger, auditLog, db).router);
+
+  // Audit-chain integrity — proves the "tamper-evident" claim by
+  // recomputing each trace's hash and verifying the chain links.
+  // Trace chain heads into the transparency log, every AEGIS_CHAIN_ANCHOR_INTERVAL_S
+  // (default 600); verification then checks each chain against them.
+  const chainAnchors = new ChainAnchorService(db, transparencyLog, logger);
+  chainAnchors.start(Math.max(10, Number(process.env.AEGIS_CHAIN_ANCHOR_INTERVAL_S) || 600) * 1000);
+  app.use('/api/v1/integrity', requireAuth, new IntegrityAPI(db, logger, chainAnchors).router);
+
+  // SOC 2 evidence pack — one-shot export of audit log + policies +
+  // tenant config + integrity verdict, scoped to the requester's org.
+  app.use('/api/v1/evidence-pack', requireAuth, new EvidencePackAPI(db, logger, auditLog).router);
+
+  // SSO — sessions + IdP adapter factory. Per-tenant SSO config in
+  // tenant_config.sso drives the picker; absent config falls through
+  // to MockIdpAdapter so local dev + the test suite stay unchanged.
+  // Production providers (Okta, Azure AD / Entra, Google Workspace,
+  // and any OIDC-compliant IdP) handled by OidcAdapter via discovery.
+  const sessionService = new SessionService(db, logger);
+  const idpFactory = new IdpFactory(logger, tenantConfig);
+  app.use(
+    '/api/v1/auth',
+    requireAuth,
+    new AuthAPI(
+      db, logger,
+      (orgId: string) => idpFactory.for(orgId),
+      sessionService, auditLog,
+    ).router,
+  );
+
+  // Kill-switch endpoints (auth required)
+  app.post('/api/v1/kill-switch/revoke', requireAuth, async (req, res) => {
+    try {
+      const { agent_id, reason } = req.body;
+      if (!agent_id) return res.status(400).json({ error: { code: 'MISSING_FIELD', message: 'agent_id required' } });
+      await killSwitch.revokeAgentAccess(agent_id, reason ?? 'Manual revocation');
+      auditLog.log({
+        org_id: req.orgId, action: 'killswitch.revoke', resource_type: 'agent',
+        resource_id: agent_id, details: { reason }, ip_address: req.ip,
+      });
+      res.json({ success: true, agent_id, status: 'REVOKED' });
+    } catch (e: any) {
+      res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: e.message } });
+    }
+  });
+
+  app.get('/api/v1/kill-switch', requireAuth, (req, res) => {
+    try {
+      const agents = db.prepare(`
+        SELECT agent_id, status, revoked_at, revocation_reason, created_at
+        FROM api_keys ORDER BY created_at DESC
+      `).all();
+      res.json({ agents });
+    } catch (e: any) {
+      res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: e.message } });
+    }
+  });
+
+  // ── LLM-as-a-Judge endpoints ──────────────────────────────────────────────
+  const llmJudge = new LLMJudgeService(db, logger);
+
+  app.post('/api/v1/judge/trace/:traceId', requireAuth, requireFeature('judge'), async (req, res) => {
+    try {
+      const { provider, apiKey, model, dimensions } = req.body;
+      if (!provider || !apiKey) {
+        return res.status(400).json({ error: { code: 'MISSING_FIELD', message: 'provider and apiKey are required' } });
+      }
+      const verdict = await llmJudge.judgeTrace(req.params.traceId, {
+        provider, apiKey, model, dimensions,
+      });
+      res.json(verdict);
+    } catch (e: any) {
+      res.status(e.message?.includes('not found') ? 404 : 500).json({ error: { code: 'JUDGE_ERROR', message: e.message } });
+    }
+  });
+
+  app.post('/api/v1/judge/batch', requireAuth, requireFeature('judge'), async (req, res) => {
+    try {
+      const { provider, apiKey, model, dimensions, batchSize, concurrency, agentId, forceRejudge } = req.body;
+      if (!provider || !apiKey) {
+        return res.status(400).json({ error: { code: 'MISSING_FIELD', message: 'provider and apiKey are required' } });
+      }
+      const verdicts = await llmJudge.judgeBatch({
+        provider, apiKey, model, dimensions, batchSize, concurrency, agentId, forceRejudge,
+      });
+      auditLog.log({
+        org_id: req.orgId, action: 'judge.batch', resource_type: 'judge',
+        details: { provider, judged: verdicts.length, batchSize, agentId },
+        ip_address: req.ip,
+      });
+      res.json({
+        judged: verdicts.length,
+        avg_score: verdicts.length
+          ? +(verdicts.reduce((s, v) => s + v.overall_score, 0) / verdicts.length).toFixed(2)
+          : null,
+        verdicts,
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: { code: 'JUDGE_ERROR', message: e.message } });
+    }
+  });
+
+  app.get('/api/v1/judge/stats', requireAuth, requireFeature('judge'), (req, res) => {
+    try {
+      const agentId = req.query.agent_id as string | undefined;
+      if (agentId) {
+        res.json(llmJudge.getAgentStats(agentId));
+      } else {
+        res.json(llmJudge.getStats());
+      }
+    } catch (e: any) {
+      res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: e.message } });
+    }
+  });
+
+  app.get('/api/v1/judge/verdict/:traceId', requireAuth, (req, res) => {
+    try {
+      const verdict = db.prepare(
+        'SELECT * FROM judge_verdicts WHERE trace_id = ?'
+      ).get(req.params.traceId);
+      if (!verdict) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'No verdict found' } });
+      res.json(verdict);
+    } catch (e: any) {
+      res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: e.message } });
+    }
+  });
+
+  // Anomaly events endpoint (auth required)
+  app.get('/api/v1/anomalies', requireAuth, requireFeature('anomaly'), (req, res) => {
+    try {
+      const { agent_id, min_score, decision } = req.query as Record<string, string>;
+      const limit = Math.min(Number(req.query.limit ?? 50), 200);
+      const offset = Number(req.query.offset ?? 0);
+
+      let sql = 'SELECT * FROM anomaly_events WHERE 1=1';
+      const params: any[] = [];
+
+      if (agent_id) { sql += ' AND agent_id = ?'; params.push(agent_id); }
+      if (min_score) { sql += ' AND composite_score >= ?'; params.push(parseFloat(min_score)); }
+      if (decision) { sql += ' AND decision = ?'; params.push(decision); }
+
+      sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+      params.push(limit, offset);
+
+      const rows = db.prepare(sql).all(...params) as any[];
+      const total = (db.prepare(
+        sql.replace(/SELECT \*/, 'SELECT COUNT(*) as n').replace(/ORDER BY.*$/, '')
+      ).get(...params.slice(0, -2)) as any).n;
+
+      res.json({
+        events: rows.map(r => ({
+          ...r,
+          signals: JSON.parse(r.signals),
+        })),
+        total,
+        limit,
+        offset,
+      });
+    } catch (err) {
+      logger.error({ err }, 'Failed to query anomaly events');
+      res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } });
+    }
+  });
+
+  // Seed demo data (auth required, dev only)
+  app.post('/api/v1/seed', requireAuth, (req, res) => {
+    try {
+      const { randomUUID } = require('crypto');
+      const agents = ['research-bot-01', 'data-pipeline-x', 'customer-support-ai', 'code-review-agent'];
+      const tools = [
+        { name: 'web_search', cat: 'network', args: (i: number) => ({ query: [`latest AI research papers`, `climate change statistics 2026`, `stock market trends`][i % 3] }) },
+        { name: 'read_file', cat: 'file', args: (i: number) => ({ path: [`/data/reports/q1.csv`, `/home/user/notes.md`, `/var/log/app.log`][i % 3] }) },
+        { name: 'execute_sql', cat: 'database', args: (i: number) => ({ sql: [`SELECT * FROM users WHERE active = 1`, `SELECT COUNT(*) FROM orders`, `SELECT name, email FROM customers LIMIT 10`][i % 3] }) },
+        { name: 'send_request', cat: 'network', args: (i: number) => ({ url: `https://api.example.com/v1/data`, method: 'GET' }) },
+        { name: 'write_file', cat: 'file', args: (i: number) => ({ path: `/tmp/output_${i}.json`, content: '{}' }) },
+      ];
+      const models = ['claude-sonnet-4-20250514', 'gpt-4o', 'claude-haiku-4-5-20251001'];
+      const statuses = ['AUTO_APPROVED', 'AUTO_APPROVED', 'AUTO_APPROVED', 'APPROVED', 'REJECTED', 'PENDING_APPROVAL'];
+      const sessions = [randomUUID(), randomUUID(), randomUUID()];
+      const now = Date.now();
+
+      const insertTrace = db.prepare(`
+        INSERT OR IGNORE INTO traces (
+          trace_id, agent_id, timestamp, sequence_number,
+          input_context, thought_chain, tool_call, observation,
+          integrity_hash, safety_validation, approval_status,
+          environment, version, model, input_tokens, output_tokens, cost_usd,
+          session_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      const insertViolation = db.prepare(`
+        INSERT INTO violations (agent_id, policy_id, trace_id, violation_type, details)
+        VALUES (?, ?, ?, ?, ?)
+      `);
+
+      let count = 0;
+      const txn = db.transaction(() => {
+        for (let i = 0; i < 80; i++) {
+          const traceId = randomUUID();
+          const agent = agents[i % agents.length];
+          const tool = tools[i % tools.length];
+          const model = models[i % models.length];
+          const session = sessions[i % sessions.length];
+          const ts = new Date(now - (80 - i) * 3 * 60_000).toISOString();
+          const duration = 50 + Math.floor(Math.random() * 500);
+          const inputTokens = 200 + Math.floor(Math.random() * 2000);
+          const outputTokens = 100 + Math.floor(Math.random() * 1000);
+          const cost = (inputTokens * 0.000003 + outputTokens * 0.000015).toFixed(6);
+
+          const isViolation = i % 12 === 0;
+          const status = isViolation ? 'REJECTED' : statuses[i % statuses.length];
+          const policyIds   = ['sql-injection', 'file-access', 'prompt-injection'];
+          const policyNames = ['SQL Injection Prevention', 'File Access Control', 'Prompt Injection Detection'];
+          const validation = isViolation
+            ? { passed: false, risk_level: i % 24 === 0 ? 'CRITICAL' : 'HIGH', policy_name: policyNames[i % 3], violations: ['Potentially dangerous pattern detected'] }
+            : { passed: true, risk_level: 'LOW', policy_name: 'default', violations: [] };
+
+          insertTrace.run(
+            traceId, agent, ts, i,
+            JSON.stringify({ prompt: `Perform ${tool.name} operation` }),
+            JSON.stringify({ raw_tokens: '' }),
+            JSON.stringify({ tool_name: tool.name, function: tool.name, arguments: tool.args(i), timestamp: ts }),
+            JSON.stringify({ raw_output: { success: true, result: `Completed ${tool.name}` }, duration_ms: duration }),
+            randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, ''),
+            JSON.stringify(validation), status,
+            'PRODUCTION', '1.0.0', model, inputTokens, outputTokens, parseFloat(cost),
+            session
+          );
+
+          if (isViolation) {
+            insertViolation.run(agent, policyIds[i % 3], traceId, validation.risk_level, JSON.stringify(validation.violations));
+          }
+          count++;
+        }
+      });
+
+      txn();
+      logger.info({ count }, 'Demo data seeded');
+      res.json({ success: true, traces_created: count });
+    } catch (error: any) {
+      logger.error({ error }, 'Failed to seed demo data');
+      res.status(500).json({ error: { code: 'SEED_ERROR', message: error.message } });
+    }
+  });
+
+  // Stats endpoint (auth required)
+  app.get('/api/v1/stats', requireAuth, (req, res) => {
+    try {
+      const totalTraces      = (db.prepare('SELECT COUNT(*) as n FROM traces').get() as any).n;
+      const activeAgents     = (db.prepare("SELECT COUNT(DISTINCT agent_id) as n FROM traces WHERE timestamp > datetime('now', '-1 day')").get() as any).n;
+      const rejectedCount    = (db.prepare("SELECT COUNT(*) as n FROM traces WHERE approval_status = 'REJECTED'").get() as any).n;
+
+      let pendingChecks = 0;
+      try {
+        pendingChecks = (db.prepare("SELECT COUNT(*) as n FROM pending_checks WHERE decision = 'pending' AND datetime(expires_at) > datetime('now')").get() as any).n;
+      } catch (e) { logger.debug({ error: e }, 'pending_checks table not ready'); }
+
+      let criticalCount = 0;
+      try {
+        criticalCount = (db.prepare("SELECT COUNT(*) as n FROM traces WHERE json_extract(safety_validation, '$.risk_level') IN ('CRITICAL', 'HIGH')").get() as any).n;
+      } catch (e) { logger.debug({ error: e }, 'critical count query failed'); }
+
+      const blockedAgents = (db.prepare("SELECT COUNT(DISTINCT agent_id) as n FROM traces WHERE approval_status = 'REJECTED'").get() as any).n;
+
+      let violations24h = 0;
+      try {
+        violations24h = (db.prepare("SELECT COUNT(*) as n FROM violations WHERE created_at > datetime('now', '-1 day')").get() as any).n;
+      } catch (e) { logger.debug({ error: e }, 'violations table not ready'); }
+
+      const tracesLastHour = (db.prepare("SELECT COUNT(*) as n FROM traces WHERE timestamp > datetime('now', '-1 hour')").get() as any).n;
+      const tracesPrevHour = (db.prepare("SELECT COUNT(*) as n FROM traces WHERE timestamp > datetime('now', '-2 hours') AND timestamp <= datetime('now', '-1 hour')").get() as any).n;
+      const tracesTrend = tracesPrevHour > 0 ? Math.round(((tracesLastHour - tracesPrevHour) / tracesPrevHour) * 100) : (tracesLastHour > 0 ? 100 : 0);
+
+      const agentsPrevDay = (db.prepare("SELECT COUNT(DISTINCT agent_id) as n FROM traces WHERE timestamp > datetime('now', '-2 days') AND timestamp <= datetime('now', '-1 day')").get() as any).n;
+      const newAgentsToday = Math.max(0, activeAgents - agentsPrevDay);
+
+      let violationsPrevDay = 0;
+      try {
+        violationsPrevDay = (db.prepare("SELECT COUNT(*) as n FROM violations WHERE created_at > datetime('now', '-2 days') AND created_at <= datetime('now', '-1 day')").get() as any).n;
+      } catch (e) { logger.debug({ error: e }, 'violations table not ready'); }
+      const violationsTrend = violationsPrevDay > 0 ? Math.round(((violations24h - violationsPrevDay) / violationsPrevDay) * 100) : (violations24h > 0 ? 100 : 0);
+
+      res.json({
+        totalTraces, activeAgents, newAgents: newAgentsToday,
+        pendingChecks, criticalAlerts: criticalCount,
+        violations24h, blockedAgents,
+        tracesTrend, violationsTrend,
+      });
+    } catch (error) {
+      logger.error({ error }, 'Failed to get stats');
+      res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } });
+    }
+  });
+
+  // ── Production Demo Guard (Phase 7.1) ──────────────────────────────────
+  if (process.env.NODE_ENV === 'production' && process.env.DEMO_MODE === '1') {
+    logger.fatal('FATAL: DEMO_MODE=1 is strictly prohibited in production');
+    throw new Error('FATAL: DEMO_MODE=1 is prohibited in production');
+  }
+
+  // ── Banking Substrate (Phase 2.1 - 2.3, 7.1) ─────────────────────────────
+  const bankingStores = new BankingStores(db, logger);
+  const customerAuth = new CustomerAuthService(bankingStores, logger);
+  const bankingAgentIdentity = new BankingAgentIdentityService(db, logger);
+  const permitEngine = new PermitEngineService(db, bankingStores, bankingAgentIdentity, logger);
+
+  // Phase 7.1 Enterprise Identity Services
+  const webauthnRpId = process.env.WEBAUTHN_RP_ID || 'localhost';
+  const webauthnRpName = process.env.WEBAUTHN_RP_NAME || 'AgentGuard AI Banking';
+  const webauthnOrigin = process.env.WEBAUTHN_ORIGIN || (process.env.NODE_ENV === 'production' ? 'https://agentguard.internal' : 'http://localhost:3000');
+
+  const webauthnService = new WebAuthnService(bankingStores, {
+    rpName: webauthnRpName,
+    rpId: webauthnRpId,
+    expectedOrigin: webauthnOrigin,
+  }, logger);
+
+  const approvalService = new TransactionApprovalService(bankingStores, webauthnService, logger);
+
+  let oidcService: EnterpriseOidcService | undefined;
+  if (process.env.OIDC_ISSUER && process.env.OIDC_CLIENT_ID) {
+    oidcService = new EnterpriseOidcService(bankingStores, {
+      provider_id: process.env.OIDC_PROVIDER_ID || 'enterprise-entra',
+      issuer: process.env.OIDC_ISSUER,
+      client_id: process.env.OIDC_CLIENT_ID,
+      client_secret: process.env.OIDC_CLIENT_SECRET,
+      authorization_endpoint: process.env.OIDC_AUTH_ENDPOINT || `${process.env.OIDC_ISSUER}/oauth2/v2.0/authorize`,
+      token_endpoint: process.env.OIDC_TOKEN_ENDPOINT || `${process.env.OIDC_ISSUER}/oauth2/v2.0/token`,
+      userinfo_endpoint: process.env.OIDC_USERINFO_ENDPOINT,
+      jwks_uri: process.env.OIDC_JWKS_URI || `${process.env.OIDC_ISSUER}/discovery/v2.0/keys`,
+      scopes: (process.env.OIDC_SCOPES || 'openid profile email').split(' '),
+      allowed_redirect_uris: [process.env.OIDC_REDIRECT_URI || 'http://localhost:3000/api/auth/callback/oidc'],
+    }, logger);
+  }
+
+  app.use('/api/customer', new CustomerAPI(bankingStores, customerAuth, {
+    oidcService,
+    webauthnService,
+    approvalService,
+    logger,
+  }).router);
+  app.use('/api/agent', new AgentBankingAPI(bankingAgentIdentity, permitEngine, logger).router);
+  app.use('/api/v1/keys', new KeyManagementApi(permitEngine, logger).getRouter());
+  app.use('/api/v1/lab', new AttackLabAPI(db, permitEngine, bankingAgentIdentity, bankingStores, logger).router);
+  app.use('/api/v1/demo', new AttackLabAPI(db, permitEngine, bankingAgentIdentity, bankingStores, logger).router);
+
+  // ── Error middleware (must be last) ──────────────────────────────────────
+  app.use(createErrorMiddleware(logger));
+
+  // ── HTTP server ──────────────────────────────────────────────────────────
+  const server = createServer(app);
+
+  // MCP proxy (for agent tools)
+  const wss = new WebSocketServer({ server, path: '/mcp' });
+  wss.on('connection', (ws, req) => {
+    const url = new URL(req.url || '/', `http://${req.headers.host}`);
+    const agentId = url.searchParams.get('agent_id') || req.headers['x-agent-id'] as string || undefined;
+    logger.info({ ip: req.socket.remoteAddress, agentId }, 'MCP client connected');
+    mcpProxy.handleConnection(ws, agentId);
+  });
+
+  // AEGIS MCP server (exposes audit data to Claude Desktop)
+  const wssAudit = new WebSocketServer({ server, path: '/mcp-audit' });
+  wssAudit.on('connection', (ws) => {
+    aegisMcp.handleConnection(ws);
+  });
+
+  // Start server
+  const port = config.server.port;
+  server.listen(port, () => {
+    const bootMs = Date.now() - startTime;
+    logger.info({
+      port,
+      version: VERSION,
+      tier: config.license.tier,
+      node_env: config.server.nodeEnv,
+      anomaly: config.anomaly.enabled,
+      otel: config.otel.enabled,
+      boot_ms: bootMs,
+    }, `AEGIS Gateway v${VERSION} ready (${bootMs}ms)`);
+  });
+
+  // ── Graceful shutdown ────────────────────────────────────────────────────
+  let shuttingDown = false;
+
+  function shutdown(signal: string) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+
+    logger.info({ signal }, 'Shutting down gracefully...');
+
+    // Stop accepting new connections
+    server.close(() => {
+      logger.info('HTTP server closed');
+    });
+
+    // Force exit after timeout
+    const forceExit = setTimeout(() => {
+      logger.error('Forced shutdown — timeout exceeded');
+      process.exit(1);
+    }, config.server.shutdownTimeoutMs);
+    forceExit.unref();
+
+    // Cleanup services
+    clearInterval(rateLimitCleanup);
+    retention.stop();
+    slaMetrics.stop();
+
+    // Close WebSocket connections
+    wss.clients.forEach(ws => ws.close(1001, 'Server shutting down'));
+    wssAudit.clients.forEach(ws => ws.close(1001, 'Server shutting down'));
+
+    // Close DB and OTel
+    setTimeout(() => {
+      db.close();
+      shutdownOtel().finally(() => {
+        logger.info('Shutdown complete');
+        process.exit(0);
+      });
+    }, 1000); // Give in-flight requests 1s to drain
+  }
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
+
+  // Catch escaped promise rejections + sync uncaught exceptions so the
+  // process doesn't die silently on a bad async path (webhook fire,
+  // OTLP export, background profile rebuild). Log + keep running —
+  // Node's default is going to terminate on uncaughtException as of
+  // v15+, but we'd rather log loudly and trigger ops alerting than
+  // crash the worker on a non-fatal async path. SIGTERM-style shutdown
+  // remains the right behaviour for legitimate termination.
+  process.on('unhandledRejection', (reason, promise) => {
+    const err = reason instanceof Error ? reason : new Error(String(reason));
+    logger.error({ err: err.message, stack: err.stack }, 'unhandledRejection — see stack for source');
+  });
+  process.on('uncaughtException', (err) => {
+    logger.error({ err: err.message, stack: err.stack }, 'uncaughtException — keeping process alive');
+  });
+}
+
+// FEATURE_GATES already imported at the top for the tier-check
+// middleware; the earlier bottom-of-file import was a duplicate.
+
+main().catch((err) => {
+  logger.error({ err }, 'Failed to start server');
+  process.exit(1);
+});

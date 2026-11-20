@@ -1,0 +1,26 @@
+{
+  "name": "@agentguard/bank-gate",
+  "version": "1.0.0",
+  "description": "Independent Financial Authorization Service for AgentGuard AI (Port 4000)",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@agentguard/core-schema": "file:../core-schema",
+    "better-sqlite3": "^9.0.0",
+    "express": "^4.18.0",
+    "pino": "^8.0.0",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/express": "^4.17.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}

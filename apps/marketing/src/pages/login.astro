@@ -1,0 +1,374 @@
+---
+import Layout from '@/layouts/Layout.astro';
+import { getPublicSupabaseUrl, getPublicSupabaseAnonKey } from '@/lib/supabase';
+
+// If already signed in, jump straight to `next` (or /account by default).
+// /account is the real post-login home — profile + license keys +
+// subscription + sign-out. /download is public and no longer the
+// default landing.
+const user = (Astro.locals as any).user;
+const url = new URL(Astro.request.url);
+const nextParam = url.searchParams.get('next') || '/account';
+if (user) return Astro.redirect(nextParam, 302);
+
+// One page serves both intents. Supabase's signInWithOtp +
+// signInWithOAuth are create-if-not-exists, so the client flow is
+// identical — only the copy varies. `?intent=signup` swaps the H1,
+// button label, and the bottom toggle link so the user gets visual
+// feedback that they landed on the "create account" flow rather
+// than the "sign in" flow. Default = sign-in.
+const intent = url.searchParams.get('intent') === 'signup' ? 'signup' : 'signin';
+const isSignup = intent === 'signup';
+const copy = isSignup
+  ? {
+      title:      'Create your account',
+      sub:        'Sign up with your work email to get started.',
+      emailBtn:   'Sign up with email',
+      oauthPrefix:'Sign up with',
+      toggle:     { text: 'Already have an account?', label: 'Sign in',  href: '/login' },
+    }
+  : {
+      title:      'Sign in',
+      sub:        'Enter your work email below to sign in to your account.',
+      emailBtn:   'Sign in with email',
+      oauthPrefix:'Sign in with',
+      toggle:     { text: "Don't have an account?", label: 'Sign up', href: '/signup' },
+    };
+
+const supabaseUrl  = getPublicSupabaseUrl(Astro.locals);
+const supabaseAnon = getPublicSupabaseAnonKey(Astro.locals);
+const supabaseConfigured = Boolean(supabaseUrl && supabaseAnon);
+
+---
+<Layout title="Sign in — AEGIS" description="Sign in to your AEGIS account.">
+  <main class="split">
+    <aside class="left">
+      <canvas class="field" data-field aria-hidden="true"></canvas>
+      <a href="/" class="brand" aria-label="AEGIS home">
+        <svg class="mark" viewBox="0 0 28 16" aria-hidden="true"><path d="M1 15 L14 3 L27 15" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"/></svg>
+        <span class="brand-name">aegis</span>
+      </a>
+      <div class="pitch">
+        <p class="pitch-h">
+          <span>Not what the call says.</span>
+          <span class="dim">Who authorised it.</span>
+        </p>
+        <ul class="facts">
+          <li><strong>29.7% → 1.4%</strong> attack success on AgentDojo</li>
+          <li><strong>0.44 ms</strong> median per check, no model call</li>
+          <li><strong>Ed25519</strong> receipt on every allowed call</li>
+        </ul>
+        <p class="src">From <a href="https://arxiv.org/abs/2603.12621" rel="noopener">arXiv:2603.12621 v2</a>, which also reports what it costs and what it misses.</p>
+      </div>
+    </aside>
+
+    <section class="right">
+      <div class="form-wrap">
+        <h1>{copy.title}</h1>
+        <p class="sub">{copy.sub}</p>
+
+        {!supabaseConfigured && (
+          <div class="notice">
+            <strong>Auth not configured.</strong> Set <code>PUBLIC_SUPABASE_URL</code> +
+            <code>PUBLIC_SUPABASE_ANON_KEY</code> in Cloudflare Pages env. See
+            <a href="https://github.com/Sumeet1249/trail/blob/main/docs/AUTH-SETUP.md">docs/AUTH-SETUP.md</a>.
+          </div>
+        )}
+
+        <form id="magic-form" autocomplete="on">
+          <label>
+            <span>Email</span>
+            <input type="email" name="email" placeholder="user@example.com" required autocomplete="email" />
+          </label>
+          <button type="submit" class="btn primary" disabled={!supabaseConfigured}>
+            {copy.emailBtn}
+          </button>
+        </form>
+
+        <div class="divider"><span>or</span></div>
+
+        <button class="btn oauth" data-provider="google" disabled={!supabaseConfigured}>
+          <svg width="18" height="18" viewBox="0 0 48 48" fill="none">
+            <path fill="#4285F4" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.9 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3 0 5.7 1.1 7.9 3l5.7-5.7C33.8 6.1 29.1 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.2-.1-2.3-.4-3.5z"/>
+            <path fill="#34A853" d="M6.3 14.7l6.6 4.8C14.7 15.3 19 12 24 12c3 0 5.7 1.1 7.9 3l5.7-5.7C33.8 6.1 29.1 4 24 4 16.3 4 9.6 8.3 6.3 14.7z"/>
+            <path fill="#FBBC05" d="M24 44c5 0 9.6-1.9 13-5l-6-5.1c-1.9 1.3-4.4 2.1-7 2.1-5.2 0-9.6-3.4-11.2-8.1l-6.5 5C9.5 39.6 16.2 44 24 44z"/>
+            <path fill="#EA4335" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.3 4.2-4.3 5.4l6 5.1C40.9 34.6 44 29.7 44 24c0-1.2-.1-2.3-.4-3.5z"/>
+          </svg>
+          {copy.oauthPrefix} Google
+        </button>
+
+        <button class="btn oauth" data-provider="github" disabled={!supabaseConfigured}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2.2c-3.3.7-4-1.4-4-1.4-.5-1.4-1.3-1.8-1.3-1.8-1.1-.8.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.9 2.9 1.3 3.6 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-6 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0C17.3 4.7 18.3 5 18.3 5c.7 1.7.2 2.9.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A12 12 0 0 0 12 .3"/>
+          </svg>
+          {copy.oauthPrefix} GitHub
+        </button>
+
+        <button class="btn oauth" data-provider="linkedin_oidc" disabled={!supabaseConfigured}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="#0A66C2">
+            <path d="M20.4 20.4h-3.6v-5.6c0-1.3 0-3-1.8-3-1.9 0-2.2 1.5-2.2 2.9v5.7H9.3V9h3.4v1.6h.1c.5-.9 1.7-1.8 3.4-1.8 3.6 0 4.3 2.4 4.3 5.5v6.1zM5.3 7.4a2.1 2.1 0 1 1 0-4.2 2.1 2.1 0 0 1 0 4.2zm1.8 13h-3.6V9h3.6v11.4zM22.2 0H1.8C.8 0 0 .8 0 1.8v20.4C0 23.2.8 24 1.8 24h20.4c1 0 1.8-.8 1.8-1.8V1.8C24 .8 23.2 0 22.2 0z"/>
+          </svg>
+          {copy.oauthPrefix} LinkedIn
+        </button>
+
+        <p class="check-email" id="check-email" hidden>
+          Check your email — we sent a one-time sign-in link to
+          <strong id="check-email-addr"></strong>.
+        </p>
+        <p class="err" id="err" hidden></p>
+
+        <p class="tos">
+          By continuing you agree to our
+          <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.
+        </p>
+        <p class="signup">
+          {copy.toggle.text} <a href={`${copy.toggle.href}?next=${encodeURIComponent(nextParam)}`}>{copy.toggle.label}</a>
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    import '../scripts/field';
+  </script>
+  <script is:inline define:vars={{ supabaseUrl, supabaseAnon, nextParam }}>
+    // Astro's `define:vars` wraps this whole block in a plain (non-async)
+    // IIFE, which means `await` at top level is a hard SyntaxError and
+    // silently breaks the ENTIRE script — buttons look dead. Wrap the
+    // async work in its own function so the top level stays sync.
+    (async () => {
+      if (!supabaseUrl || !supabaseAnon) return;
+
+      // Use @supabase/ssr's createBrowserClient so PKCE code_verifier
+      // is stored in COOKIES (not localStorage). Vanilla supabase-js
+      // stores in localStorage → server-side callback can't read it
+      // → exchangeCodeForSession always fails silently on OAuth
+      // redirect. createBrowserClient shares cookie storage with the
+      // server client so the round-trip works.
+      const { createBrowserClient } = await import('https://esm.sh/@supabase/ssr@0.5.0');
+      const supabase = createBrowserClient(supabaseUrl, supabaseAnon);
+
+      const errBox  = document.getElementById('err');
+      const chkBox  = document.getElementById('check-email');
+      const chkAddr = document.getElementById('check-email-addr');
+      const showErr = (msg) => {
+        errBox.textContent = msg;
+        errBox.hidden = false;
+        chkBox.hidden = true;
+      };
+      const showCheck = (email) => {
+        chkAddr.textContent = email;
+        chkBox.hidden = false;
+        errBox.hidden = true;
+      };
+
+      document.querySelectorAll('button.oauth').forEach((btn) => {
+        btn.addEventListener('click', async (e) => {
+          e.preventDefault();
+          const provider = btn.getAttribute('data-provider');
+          try {
+            const { error } = await supabase.auth.signInWithOAuth({
+              provider,
+              options: {
+                redirectTo: `${location.origin}/api/auth/callback?next=${encodeURIComponent(nextParam)}`,
+              },
+            });
+            if (error) showErr(`${provider} sign-in failed: ${error.message}`);
+          } catch (err) {
+            showErr(`${provider} sign-in threw: ${err.message}`);
+          }
+        });
+      });
+
+      const form = document.getElementById('magic-form');
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const email = new FormData(form).get('email');
+        if (!email) return;
+        try {
+          const { error } = await supabase.auth.signInWithOtp({
+            email,
+            options: {
+              emailRedirectTo: `${location.origin}/api/auth/callback?next=${encodeURIComponent(nextParam)}`,
+            },
+          });
+          if (error) showErr(`Sign-in email failed: ${error.message}`);
+          else showCheck(email);
+        } catch (err) {
+          showErr(`Sign-in email threw: ${err.message}`);
+        }
+      });
+    })().catch((err) => {
+      // Last-resort logger — any startup failure surfaces in the browser
+      // console rather than dying silently.
+      console.error('[aegis-login] init failed:', err);
+    });
+  </script>
+
+  <style>
+    /* ── Palette ─────────────────────────────────────────────────────
+       Uses AEGIS-site tokens from Layout.astro so this page stays
+       visually continuous with the rest of aegistraces.com. No hard
+       hex codes below unless the token doesn't cover the case (e.g.,
+       the mask gradient must be `#000` for `mask-image`).
+
+       --bg          #ffffff   warm cream — right form panel matches site body
+       --surface     #fafafa   lighter warm — form inputs, primary button hover
+       --surface-2   #ece6cf   slightly darker warm — left testimonial panel
+       --text        #0a0a0a   near-black text
+       --muted       #5c5a50   warm gray-brown for secondary text
+       --hairline    rgba(10,10,10,.10)     subtle borders
+       --hairline-strong rgba(10,10,10,.22) form input borders
+       --accent      #0a0a0a   primary button bg (site's convention)
+       --accent-warn #b07d2e   warm gold — testimonial emphasis + avatar tint */
+
+    main.split {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      min-height: 100vh;
+      background: var(--bg);
+    }
+    aside.left {
+      position: relative;
+      overflow: hidden;
+      margin: clamp(0.6rem, 0.3rem + 1.3vw, 1.9rem);
+      margin-right: 0;
+      border-radius: var(--radius-panel);
+      padding: 2.4rem 2.6rem 3rem;
+      color: #f2efea;
+      /* Ink, with a field of strokes (src/scripts/field.ts) that swirls
+         around the pointer. */
+      background: radial-gradient(120% 80% at 20% 100%, #1f3d39 0%, #152b2d 50%, #0f1d1e 100%);
+      display: flex;
+      flex-direction: column;
+      isolation: isolate;
+    }
+    .field { position: absolute; inset: 0; z-index: -1; width: 100%; height: 100%; pointer-events: none; }
+    aside .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      text-decoration: none;
+      color: #f2efea;
+      font-family: var(--font-sans);
+      font-weight: 500;
+      font-size: 1.45rem;
+      letter-spacing: -0.04em;
+    }
+    aside .brand .mark { width: 1.35rem; height: auto; }
+    .pitch { margin-top: auto; max-width: 34rem; }
+    .pitch-h {
+      font-size: clamp(2rem, 1.2rem + 2.4vw, 3.4rem);
+      font-weight: 340;
+      line-height: 1.04;
+      letter-spacing: -0.035em;
+      margin: 0 0 2.2rem;
+    }
+    .pitch-h span { display: block; }
+    .pitch-h .dim { color: #dbdfda; opacity: 0.75; }
+    .facts { list-style: none; padding: 0; margin: 0 0 1.6rem; border-top: 1px solid #f2efea2e; }
+    .facts li { padding: 0.8rem 0; border-bottom: 1px solid #f2efea2e; color: #dbdfda; font-size: 0.95rem; }
+    .facts strong { color: #f2efea; font-weight: 500; margin-right: 0.4rem; }
+    .src { color: #dbdfda; opacity: 0.8; font-size: 0.82rem; margin: 0; line-height: 1.5; }
+    .src a { color: #f2efea; }
+
+    section.right {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+      background: var(--bg);
+    }
+    .form-wrap { width: 100%; max-width: 26rem; }
+    .form-wrap h1 {
+      font-family: var(--font-sans); font-weight: 600;
+      font-size: 2rem;
+      font-weight: 400;
+      text-align: center;
+      margin: 0 0 0.5rem;
+      color: var(--text);
+      letter-spacing: -0.01em;
+    }
+    .form-wrap .sub { color: var(--muted); text-align: center; margin: 0 0 2rem; font-size: 0.9rem; }
+    .notice {
+      background: color-mix(in oklab, var(--accent-warn) 15%, var(--surface));
+      border: 1px solid color-mix(in oklab, var(--accent-warn) 45%, transparent);
+      color: color-mix(in oklab, var(--accent-warn) 80%, var(--text));
+      padding: 0.75rem 1rem; border-radius: 8px; font-size: 0.85rem;
+      margin-bottom: 1.5rem;
+    }
+    .notice a { color: inherit; text-decoration: underline; }
+    .notice code { font-family: var(--font-mono); font-size: 0.8rem; background: rgba(10,10,10,0.06); padding: 0 0.25rem; border-radius: 3px; }
+    form label { display: block; margin-bottom: 1rem; }
+    form label span { display: block; color: var(--text); font-size: 0.85rem; margin-bottom: 0.35rem; font-weight: 500; }
+    form input {
+      width: 100%; padding: 0.65rem 0.85rem;
+      border: 1px solid var(--hairline-strong); border-radius: 8px; font-size: 0.95rem;
+      background: var(--surface); color: var(--text);
+      font-family: inherit;
+      transition: border-color 0.12s, box-shadow 0.12s;
+    }
+    form input:focus {
+      outline: none; border-color: var(--text);
+      box-shadow: 0 0 0 3px color-mix(in oklab, var(--text) 8%, transparent);
+    }
+
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 0.6rem;
+      width: 100%; padding: 0.65rem 1rem;
+      border-radius: 8px; font-weight: 500; font-size: 0.9rem;
+      cursor: pointer; transition: background 0.12s, border-color 0.12s;
+      margin-bottom: 0.6rem;
+      font-family: inherit;
+    }
+    .btn.primary {
+      background: var(--accent); color: var(--bg);
+      border: 1px solid var(--accent); margin-bottom: 1.25rem;
+    }
+    .btn.primary:hover:not([disabled]) {
+      background: transparent; color: var(--accent);
+    }
+    .btn.oauth {
+      background: var(--surface); color: var(--text);
+      border: 1px solid var(--hairline-strong);
+    }
+    .btn.oauth:hover:not([disabled]) {
+      background: var(--surface-2); border-color: var(--accent);
+    }
+    .btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+
+    .divider {
+      display: flex; align-items: center; margin: 1.25rem 0;
+      color: var(--muted); font-size: 0.75rem;
+    }
+    .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--hairline); }
+    .divider span { padding: 0 0.75rem; text-transform: uppercase; letter-spacing: 0.1em; }
+
+    .check-email {
+      background: color-mix(in oklab, var(--accent-positive) 12%, var(--surface));
+      border: 1px solid color-mix(in oklab, var(--accent-positive) 45%, transparent);
+      color: var(--accent-positive);
+      padding: 0.75rem 1rem; border-radius: 8px; font-size: 0.85rem;
+      margin: 1rem 0 0;
+    }
+    .err {
+      background: color-mix(in oklab, var(--accent-error) 12%, var(--surface));
+      border: 1px solid color-mix(in oklab, var(--accent-error) 45%, transparent);
+      color: var(--accent-error);
+      padding: 0.75rem 1rem; border-radius: 8px; font-size: 0.85rem;
+      margin: 1rem 0 0;
+    }
+
+    .tos { text-align: center; color: var(--muted); font-size: 0.78rem; margin: 2rem 0 0.5rem; }
+    .tos a { color: var(--text); text-decoration: underline; text-decoration-color: var(--hairline-strong); }
+    .signup { text-align: center; color: var(--muted); font-size: 0.85rem; margin: 0.5rem 0 0; }
+    .signup a { color: var(--text); font-weight: 500; text-decoration: none; }
+    .signup a:hover { text-decoration: underline; }
+
+    @media (max-width: 900px) {
+      main.split { grid-template-columns: 1fr; }
+      aside.left { display: none; }
+      section.right { padding: 4rem 1.5rem; min-height: 100vh; }
+    }
+  </style>
+</Layout>

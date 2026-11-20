@@ -1,0 +1,99 @@
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Testing
+coverage
+*.lcov
+.nyc_output
+# …but the Cockpit's /coverage page is source code, not test output.
+!apps/compliance-cockpit/src/app/coverage
+!apps/compliance-cockpit/src/components/coverage
+
+# Next.js
+.next
+out
+build
+dist
+*.tsbuildinfo
+
+# Rust / Cargo build artifacts (anywhere in the tree)
+target/
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+.vincent
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs
+*.log
+
+# Turbo
+.turbo
+
+# Build outputs
+dist/
+build/
+
+# Keys and certificates
+*.pem
+*.key
+private_key.pem
+*.cert
+*.crt
+# …but the AEGIS-published release-signing PUBLIC key belongs in-tree;
+# customers retrieve it from this exact path to pin trust.
+!.well-known/aegis-release-pubkey.pem
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+tmp/
+
+# Backup files
+backup/
+*.bak
+
+# Upload directories
+uploads/
+data/uploads/
+
+# Personal/test files
+test_agentguard.py
+cleanup-project.sh
+.env.production
+.vercel
+.env*
+research/external/
+research/benchmark/

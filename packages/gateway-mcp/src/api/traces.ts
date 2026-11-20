@@ -1,0 +1,917 @@
+import { Router, Request, Response } from 'express';
+import Database from 'better-sqlite3';
+import { Logger } from 'pino';
+import { z } from 'zod';
+import {
+  AgentActionTraceSchema,
+  TraceQuerySchema,
+  TraceBundleSchema,
+  validateTraceChain,
+} from '@agentguard/core-schema';
+import { calculateCost } from '../services/cost';
+import { redactObjectPii } from '../services/pii';
+import { emitTraceSpan } from '../services/otel';
+import { AgentRegistryService } from '../services/agent-registry';
+import { computeContentHash } from '../services/content-hash';
+import { compileQuery } from '../services/trace-query-dsl';
+import { randomUUID, createHash } from 'crypto';
+
+/** Map a model string + tool name to the GenAI semconv `gen_ai.system`
+ *  value. Used to populate the span attribute Datadog GenAI / Honeycomb
+ *  LLM templates filter on. */
+function inferProvider(model: string | undefined, toolName: string): string {
+  const m = (model ?? '').toLowerCase();
+  const t = toolName.toLowerCase();
+  if (m.startsWith('claude') || m.startsWith('anthropic'))           return 'anthropic';
+  if (m.startsWith('gpt') || m.startsWith('o1') || m.startsWith('o3')
+      || m.startsWith('o4') || m.startsWith('chatgpt') || m.startsWith('davinci')) return 'openai';
+  if (m.startsWith('gemini') || m.startsWith('text-bison')
+      || m.startsWith('chat-bison'))                                  return 'google';
+  if (m.startsWith('mistral') || m.startsWith('mixtral'))             return 'mistral';
+  if (m.startsWith('command')) /* cohere */                           return 'cohere';
+  if (m.startsWith('llama') || m.startsWith('codellama'))             return 'meta';
+  if (m.includes('claude') && m.includes('bedrock'))                  return 'aws.bedrock';
+  if (m.startsWith('amazon.'))                                        return 'aws.bedrock';
+  if (m.startsWith('groq'))                                           return 'groq';
+  if (t.includes('anthropic'))                                        return 'anthropic';
+  if (t.includes('openai'))                                           return 'openai';
+  if (t.includes('gemini') || t.includes('google'))                   return 'google';
+  return 'unknown';
+}
+
+/** Map our SDK's tool call shape onto the GenAI semconv operation name.
+ *  Keeps the bucket count small (chat / text_completion / embedding /
+ *  tool_call) so cardinality stays bounded. */
+function inferOperation(toolName: string, toolCall: any): 'chat' | 'text_completion' | 'embedding' | 'tool_call' {
+  const t = toolName.toLowerCase();
+  if (t.includes('embed'))                                            return 'embedding';
+  if (t.includes('chat') || t.includes('message')
+      || (toolCall?.arguments?.messages || toolCall?.messages))       return 'chat';
+  if (t.includes('complet') || t.includes('generate'))                return 'text_completion';
+  return 'tool_call';
+}
+
+// computeContentHash moved to services/content-hash.ts. Re-exported
+// for backwards compat with tests / older call-sites; new code should
+// import from `../services/content-hash` directly. This avoids the
+// `services/ → api/` layering violation the old definition caused.
+export { computeContentHash };
+
+/** The operator's agent name, if the SDK sent one beside the UUID. */
+function agentNameOf(raw: any): string | null {
+  const n = raw?.agent_name ?? raw?.metadata?.agent_name;
+  return typeof n === 'string' && n.trim() && n.length <= 200 ? n.trim() : null;
+}
+
+export class TraceAPI {
+  public readonly router: Router;
+
+  // Prepared-statement cache for /search. Keyed by SQL text, bounded
+  // to STMT_CACHE_MAX so a random-query flood can't drive memory
+  // growth. LRU-ish: on overflow we drop the oldest insertion.
+  private static readonly STMT_CACHE_MAX = 512;
+  private stmtCache = new Map<string, Database.Statement>();
+
+  constructor(
+    private db: Database.Database,
+    private logger: Logger,
+    private agentRegistry?: AgentRegistryService,
+  ) {
+    this.router = Router();
+    this.setupRoutes();
+  }
+
+  /**
+   * Resolve the tenant that owns an ingest. POST /traces is on the
+   * auth middleware's open list (the SDK needs to send traces without
+   * a JWT round-trip), so `req.orgId` is not populated for us. We
+   * best-effort look up the SDK's `x-api-key` against `org_api_keys`
+   * ourselves. Missing / invalid key → 'default' so a solo self-host
+   * deployment keeps working; malicious keys can't spoof another
+   * tenant because the hash lookup will fail.
+   */
+  private ingestOrgId(req: Request): string {
+    if ((req as any).orgId) return (req as any).orgId as string;
+    const apiKey = req.headers['x-api-key'] as string | undefined;
+    if (apiKey && apiKey.startsWith('aegis_')) {
+      try {
+        const hash = createHash('sha256').update(apiKey).digest('hex');
+        const row = this.db.prepare(
+          `SELECT org_id FROM org_api_keys WHERE key_hash = ? AND revoked_at IS NULL`,
+        ).get(hash) as { org_id?: string } | undefined;
+        if (row?.org_id) return row.org_id;
+      } catch { /* org_api_keys may not exist on minimal test schemas */ }
+    }
+    return 'default';
+  }
+
+  private getCachedStmt(sql: string): Database.Statement {
+    const hit = this.stmtCache.get(sql);
+    if (hit) {
+      // Refresh position in insertion order — cheap LRU approximation.
+      this.stmtCache.delete(sql);
+      this.stmtCache.set(sql, hit);
+      return hit;
+    }
+    const stmt = this.db.prepare(sql);
+    this.stmtCache.set(sql, stmt);
+    if (this.stmtCache.size > TraceAPI.STMT_CACHE_MAX) {
+      // Delete the oldest entry (Map preserves insertion order).
+      const firstKey = this.stmtCache.keys().next().value;
+      if (firstKey) this.stmtCache.delete(firstKey);
+    }
+    return stmt;
+  }
+
+  /** Record the sighting so the agents table, last_seen_at, and the
+   *  first-sighting event bus all stay in sync with the trace ingest
+   *  hot path. Provenance gets backfilled from SDK headers when present. */
+  private noteSighting(req: Request, agentId: string, agentName?: string | null): void {
+    if (!this.agentRegistry) return;
+    // The SDK keys /check on the operator's agent name and the trace
+    // schema on a UUID derived from it. Registering the trace sighting
+    // under the name keeps one registry row per agent instead of two.
+    if (agentName) agentId = agentName;
+    const orgId = (req as any).orgId ?? 'default';
+    const buildArtifact = req.headers['x-aegis-build-artifact'] as string | undefined;
+    const sourceCommit  = req.headers['x-aegis-source-commit']  as string | undefined;
+    const provenance = (buildArtifact || sourceCommit)
+      ? { build_artifact: buildArtifact, source_commit: sourceCommit }
+      : undefined;
+    this.agentRegistry.touch({ orgId, agentId, name: agentName ?? undefined, provenance });
+  }
+
+  private setupRoutes() {
+    // Create single trace
+    this.router.post('/', async (req: Request, res: Response) => {
+      try {
+        const trace = AgentActionTraceSchema.parse(req.body);
+
+        // Verify hash chain (soft validation — log but don't reject)
+        const previousTrace = this.getPreviousTrace(trace.agent_id as string);
+        if (previousTrace && trace.previous_hash && trace.previous_hash !== previousTrace.integrity_hash) {
+          this.logger.warn({
+            expected: previousTrace.integrity_hash,
+            received: trace.previous_hash,
+          }, 'Hash chain gap detected');
+        }
+
+        await this.storeTrace(trace, req.body, this.ingestOrgId(req));
+        this.noteSighting(req, trace.agent_id as string, agentNameOf(req.body));
+        res.status(201).json({ trace_id: trace.trace_id });
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          return res.status(400).json({ error: 'Invalid trace format', details: error.errors });
+        }
+        this.logger.error({ error }, 'Failed to create trace');
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
+
+    // Batch create traces
+    this.router.post('/batch', async (req: Request, res: Response) => {
+      try {
+        const { traces } = req.body;
+        if (!Array.isArray(traces)) {
+          return res.status(400).json({ error: 'traces must be an array' });
+        }
+        const validTraces = traces.map((t, i) => ({ parsed: AgentActionTraceSchema.parse(t), raw: t }));
+        const ingestOrg = this.ingestOrgId(req);
+        const transaction = this.db.transaction((rows: any[]) => {
+          for (const { parsed, raw } of rows) this.insertTrace(parsed, raw, ingestOrg);
+        });
+        transaction(validTraces);
+        for (const { parsed, raw } of validTraces) this.noteSighting(req, parsed.agent_id as string, agentNameOf(raw));
+        res.status(201).json({ created: validTraces.length, trace_ids: validTraces.map(({ parsed }) => parsed.trace_id) });
+      } catch (error) {
+        this.logger.error({ error }, 'Failed to create batch traces');
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
+
+    // Chain head — the SDK calls this once, before its first trace, so a
+    // restarted process continues the agent's hash chain instead of
+    // starting a second chain at sequence 0 (which verify-all reports as
+    // link_broken). Open route like the ingest paths: an SDK that may POST
+    // traces may read where its own chain ends.
+    this.router.get('/chain-head', (req: Request, res: Response) => {
+      const agentId = String(req.query.agent_id ?? '').trim();
+      if (!agentId) return res.status(400).json({ error: 'agent_id is required' });
+      const head = this.db
+        .prepare(
+          `SELECT integrity_hash, sequence_number FROM traces
+           WHERE agent_id = ? ORDER BY sequence_number DESC LIMIT 1`,
+        )
+        .get(agentId) as { integrity_hash: string; sequence_number: number } | undefined;
+      res.json({
+        agent_id: agentId,
+        sequence_number: head ? Number(head.sequence_number) : -1,
+        integrity_hash: head ? head.integrity_hash : null,
+      });
+    });
+
+    // Query traces
+    this.router.get('/', async (req: Request, res: Response) => {
+      try {
+        const query = TraceQuerySchema.parse(req.query);
+
+        // Tenant scope — COALESCE handles legacy rows written before
+        // the org_id column existed; they attribute to 'default' so a
+        // solo self-host stays consistent, while multi-tenant setups
+        // that authenticated the caller see only their org's rows.
+        const orgId = (req as any).orgId ?? 'default';
+        let baseSql = `FROM traces WHERE COALESCE(org_id, 'default') = ?`;
+        const params: any[] = [orgId];
+
+        if (query.agent_id) { baseSql += ' AND agent_id = ?'; params.push(query.agent_id); }
+        // One agent run, in order: the Cockpit's execution timeline.
+        const sessionId = typeof req.query.session_id === 'string' ? req.query.session_id : undefined;
+        if (sessionId) { baseSql += ' AND session_id = ?'; params.push(sessionId); }
+        if (query.start_time) { baseSql += ' AND timestamp >= ?'; params.push(query.start_time); }
+        if (query.end_time) { baseSql += ' AND timestamp <= ?'; params.push(query.end_time); }
+        if (query.risk_level) {
+          baseSql += ' AND risk_level_v = ?';
+          params.push(query.risk_level);
+        }
+        if (query.approval_status) { baseSql += ' AND approval_status = ?'; params.push(query.approval_status); }
+
+        const total = (this.db.prepare(`SELECT COUNT(*) as n ${baseSql}`).get(...params) as any).n as number;
+
+        const sql = `SELECT * ${baseSql} ORDER BY timestamp DESC LIMIT ? OFFSET ?`;
+        const traces = this.db.prepare(sql).all(...params, query.limit, query.offset) as any[];
+        res.json({ traces: traces.map(this.parseTrace), total, limit: query.limit, offset: query.offset });
+      } catch (error) {
+        this.logger.error({ error }, 'Failed to query traces');
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
+
+    // POST /search — DSL-powered full-text + structured trace search.
+    // The DSL is documented in packages/gateway-mcp/src/services/trace-query-dsl.ts
+    // (Pratt parser, field whitelist, SQLite FTS5 backend).
+    //
+    // Body:
+    //   {
+    //     q:      "agent:foo AND @args.amount:>10000 AND \"secret\"",
+    //     limit:  number   (default 100, max 1000)
+    //     offset: number   (default 0)
+    //   }
+    //
+    // Response:
+    //   {
+    //     traces: [...],
+    //     total:  number,      // total matching before limit/offset
+    //     took_ms: number,     // server-side query time
+    //     query: { sql, params, fts_match }   // reflected for debugging
+    //   }
+    //
+    // POST (not GET) because DSL strings can be long and encoding
+    // them into URLs is painful; also keeps them out of proxy access
+    // logs by default.
+    this.router.post('/search', async (req: Request, res: Response) => {
+      const started = Date.now();
+      const bodySchema = z.object({
+        q:      z.string().max(4096),
+        limit:  z.number().int().min(1).max(1000).optional().default(100),
+        offset: z.number().int().min(0).optional().default(0),
+      });
+      let body: z.infer<typeof bodySchema>;
+      try { body = bodySchema.parse(req.body); }
+      catch (e) {
+        return res.status(400).json({ error: 'invalid body', details: (e as z.ZodError).issues });
+      }
+
+      let compiled;
+      try { compiled = compileQuery(body.q); }
+      catch (e) {
+        return res.status(400).json({ error: (e as Error).message });
+      }
+
+      // Compose the SELECT. If the query touched an FTS-indexed
+      // column (either free-text or `prompt:"..."`) we JOIN
+      // traces_fts and add the MATCH filter on top of the whitelist-
+      // compiled WHERE. Otherwise it's a plain traces scan.
+      const useFts = Boolean(compiled.ftsMatch);
+      const joinClause = useFts ? 'JOIN traces_fts ON traces_fts.rowid = traces.id' : '';
+      const ftsWhere   = useFts ? ' AND traces_fts MATCH ?' : '';
+      // Tenant scope — inject an unconditional org_id filter so no
+      // DSL query can cross tenants. COALESCE handles legacy rows
+      // written before org_id existed (Round D isolation fix).
+      const orgId = (req as any).orgId ?? 'default';
+      const tenantWhere = `COALESCE(traces.org_id, 'default') = ?`;
+      const whereParams = useFts
+        ? [orgId, ...compiled.params, compiled.ftsMatch]
+        : [orgId, ...compiled.params];
+
+      try {
+        const countSql = `SELECT COUNT(*) as n FROM traces ${joinClause} WHERE ${tenantWhere} AND ${compiled.sql}${ftsWhere}`;
+        const listSql  = `SELECT traces.* FROM traces ${joinClause}
+                         WHERE ${tenantWhere} AND ${compiled.sql}${ftsWhere}
+                         ORDER BY traces.timestamp DESC
+                         LIMIT ? OFFSET ?`;
+        // Prepared-statement cache — the same DSL query re-run (dashboard
+        // auto-refresh, saved queries, tail) reuses the compiled plan
+        // instead of re-preparing. better-sqlite3 caches the plan per
+        // Statement handle; we cache the handles here keyed by SQL text.
+        // Size bounded to keep an attacker from blowing memory with
+        // random unique queries.
+        const total = (this.getCachedStmt(countSql).get(...whereParams) as any).n as number;
+        const rows  = this.getCachedStmt(listSql).all(...whereParams, body.limit, body.offset) as any[];
+
+        res.json({
+          traces:  rows.map(this.parseTrace),
+          total,
+          limit:   body.limit,
+          offset:  body.offset,
+          took_ms: Date.now() - started,
+          query:   {
+            sql:       compiled.sql,
+            params:    compiled.params,
+            fts_match: compiled.ftsMatch,
+          },
+        });
+      } catch (e) {
+        this.logger.error({ err: (e as Error).message, dsl: body.q }, 'trace search failed');
+        res.status(500).json({ error: 'search failed', message: (e as Error).message });
+      }
+    });
+
+    // Saved queries — per-org named DSL queries. Cockpit uses these
+    // to populate the "Saved" dropdown in the trace search bar.
+    // Tenancy: every row is scoped by org_id; the '*' wildcard is
+    // reserved for platform-default queries (none shipped yet).
+    this.router.get('/saved-queries', async (req: Request, res: Response) => {
+      const orgId = (req as any).orgId ?? 'default';
+      const rows = this.db.prepare(
+        `SELECT id, name, dsl, created_by, created_at, last_run_at
+           FROM saved_queries WHERE org_id = ? OR org_id = '*'
+           ORDER BY name`,
+      ).all(orgId);
+      res.json({ saved_queries: rows });
+    });
+
+    this.router.post('/saved-queries', async (req: Request, res: Response) => {
+      const schema = z.object({
+        name: z.string().min(1).max(100),
+        dsl:  z.string().min(1).max(4096),
+      });
+      let body: z.infer<typeof schema>;
+      try { body = schema.parse(req.body); }
+      catch (e) { return res.status(400).json({ error: 'invalid body', details: (e as z.ZodError).issues }); }
+
+      // Validate the DSL by compiling it — refuse to save a query
+      // that doesn't parse, so the cockpit's saved-queries dropdown
+      // never contains something that will 400 when clicked.
+      try { compileQuery(body.dsl); }
+      catch (e) { return res.status(400).json({ error: `dsl does not compile: ${(e as Error).message}` }); }
+
+      const orgId = (req as any).orgId ?? 'default';
+      const userId = (req as any).userId ?? (req as any).apiKeyName ?? null;
+      const id = randomUUID();
+      this.db.prepare(
+        `INSERT INTO saved_queries (id, org_id, name, dsl, created_by)
+         VALUES (?, ?, ?, ?, ?)`,
+      ).run(id, orgId, body.name, body.dsl, userId);
+      res.status(201).json({ id, name: body.name, dsl: body.dsl });
+    });
+
+    this.router.delete('/saved-queries/:id', async (req: Request, res: Response) => {
+      const orgId = (req as any).orgId ?? 'default';
+      // Cross-tenant isolation: DELETE gated by (id, org_id) so a
+      // caller from org A cannot delete an org B row even by guessing
+      // the id.
+      const info = this.db.prepare(
+        `DELETE FROM saved_queries WHERE id = ? AND org_id = ?`,
+      ).run(req.params.id, orgId);
+      if (info.changes === 0) return res.status(404).json({ error: 'not found' });
+      res.status(204).end();
+    });
+
+    // GET /:traceId/delegation — every trace under the same delegation
+    // scope as this one, chronologically ordered. Drives the Cockpit's
+    // trace-detail waterfall: an operator clicking one hop of a
+    // multi-agent workflow can see every sibling + descendant hop the
+    // same delegation produced without stitching parent_trace_id
+    // pointers themselves.
+    //
+    // Toledo et al. arXiv:2606.09692 — delegation-scoped observability
+    // is the substrate for "what happened under delegation X" queries.
+    // We store delegation_id at ingest time from the SDK, so this is
+    // a straight indexed lookup instead of a heuristic time-window
+    // correlation.
+    //
+    // Response shape kept flat: an array of lightweight trace summaries
+    // so a 40-hop delegation renders under 10KB. Full trace bodies
+    // are one click away via /traces/:id.
+    this.router.get('/:traceId/delegation', async (req: Request, res: Response) => {
+      const orgId = (req as any).orgId ?? 'default';
+      const focusId = req.params.traceId;
+      try {
+        const focus = this.db.prepare(
+          `SELECT delegation_id FROM traces
+             WHERE trace_id = ? AND COALESCE(org_id, 'default') = ?`,
+        ).get(focusId, orgId) as { delegation_id: string | null } | undefined;
+
+        if (!focus) return res.status(404).json({ error: 'trace not found' });
+
+        // Traces without a delegation_id have no scope — the response
+        // is the single focus trace, so the client can render an
+        // "unlinked" state instead of a 404.
+        if (!focus.delegation_id) {
+          return res.json({ delegation_id: null, traces: [] });
+        }
+
+        const rows = this.db.prepare(
+          `SELECT trace_id, parent_trace_id, agent_id, timestamp, sequence_number,
+                  tool_name_v AS tool_name,
+                  risk_level_v AS risk_level,
+                  approval_status, cost_usd,
+                  workflow_node_id, workflow_binding_id,
+                  parent_agent_id, delegation_reason,
+                  capability_grant, a2a_envelope_hash,
+                  json_extract(observation, '$.duration_ms') AS duration_ms
+             FROM traces
+             WHERE delegation_id = ?
+               AND COALESCE(org_id, 'default') = ?
+             ORDER BY timestamp ASC, sequence_number ASC`,
+        ).all(focus.delegation_id, orgId) as any[];
+
+        // capability_grant is stored as a JSON string; parse for the
+        // client so the wire response is a nested object, matching
+        // the shape SDKs sent on insert. Malformed rows return null
+        // rather than a JSON string to avoid downstream schema
+        // confusion.
+        for (const row of rows) {
+          if (row.capability_grant) {
+            try { row.capability_grant = JSON.parse(row.capability_grant); }
+            catch { row.capability_grant = null; }
+          }
+        }
+
+        res.json({ delegation_id: focus.delegation_id, traces: rows });
+      } catch (e) {
+        this.logger.error({ err: (e as Error).message, traceId: focusId }, 'delegation lookup failed');
+        res.status(500).json({ error: 'delegation lookup failed' });
+      }
+    });
+
+    // Update trace (approval + score)  [defined before GET /:traceId intentionally]
+    this.router.patch('/:traceId', async (req: Request, res: Response) => {
+      try {
+        const { approval_status, approved_by, score, score_label, feedback, scored_by } = req.body;
+        const updates: string[] = [];
+        const values: any[] = [];
+
+        if (approval_status !== undefined) {
+          if (!['APPROVED', 'REJECTED', 'PENDING'].includes(approval_status)) {
+            return res.status(400).json({ error: 'Invalid approval_status' });
+          }
+          updates.push('approval_status = ?', 'approved_by = ?');
+          values.push(approval_status, approved_by || 'human-reviewer');
+        }
+
+        if (score !== undefined) {
+          updates.push('score = ?', 'score_label = ?', 'feedback = ?', 'scored_by = ?', "scored_at = datetime('now')");
+          values.push(score, score_label ?? (score > 0 ? 'good' : 'bad'), feedback ?? null, scored_by ?? 'dashboard-user');
+        }
+
+        if (updates.length === 0) return res.status(400).json({ error: 'Nothing to update' });
+
+        values.push(req.params.traceId);
+        const result = this.db.prepare(
+          `UPDATE traces SET ${updates.join(', ')} WHERE trace_id = ?`
+        ).run(...values);
+
+        if (result.changes === 0) return res.status(404).json({ error: 'Trace not found' });
+        res.json({ trace_id: req.params.traceId, updated: true });
+      } catch (error) {
+        this.logger.error({ error }, 'Failed to update trace');
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
+
+    // Cost summary endpoint
+    this.router.get('/stats/cost', async (req: Request, res: Response) => {
+      try {
+        const { agent_id, since } = req.query as Record<string, string>;
+        const orgId = (req as any).orgId ?? 'default';
+        // Tenant scope on every SELECT — before this, a tenant could
+        // read another tenant's cost totals via GET /stats/cost. The
+        // COALESCE handles legacy rows written pre-org_id.
+        let sql = `SELECT
+          agent_id,
+          model,
+          COUNT(*) as trace_count,
+          SUM(input_tokens) as total_input_tokens,
+          SUM(output_tokens) as total_output_tokens,
+          SUM(cost_usd) as total_cost_usd
+        FROM traces WHERE COALESCE(org_id, 'default') = ?`;
+        const params: any[] = [orgId];
+        if (agent_id) { sql += ' AND agent_id = ?'; params.push(agent_id); }
+        if (since)    { sql += ' AND timestamp >= ?'; params.push(since); }
+        sql += ' GROUP BY agent_id, model ORDER BY total_cost_usd DESC';
+        const rows = this.db.prepare(sql).all(...params);
+
+        const overall = this.db.prepare(
+          `SELECT SUM(cost_usd) as total, SUM(input_tokens) as inp, SUM(output_tokens) as out
+           FROM traces WHERE COALESCE(org_id, 'default') = ? AND cost_usd > 0
+             ${agent_id ? 'AND agent_id = ?' : ''}`
+        ).get(...(agent_id ? [orgId, agent_id] : [orgId])) as any;
+
+        let toolSql = `SELECT
+            COALESCE(tool_name_v, '(unknown)') AS tool_name,
+            COUNT(*) as trace_count,
+            SUM(input_tokens) as total_input_tokens,
+            SUM(output_tokens) as total_output_tokens,
+            SUM(cost_usd) as total_cost_usd
+          FROM traces WHERE COALESCE(org_id, 'default') = ?`;
+        const toolParams: any[] = [orgId];
+        if (agent_id) { toolSql += ' AND agent_id = ?'; toolParams.push(agent_id); }
+        if (since)    { toolSql += ' AND timestamp >= ?'; toolParams.push(since); }
+        toolSql += ` GROUP BY tool_name_v
+                     ORDER BY total_cost_usd DESC, trace_count DESC`;
+        const byTool = this.db.prepare(toolSql).all(...toolParams);
+
+        res.json({ by_agent_model: rows, by_tool: byTool, total_cost_usd: overall?.total ?? 0,
+          total_input_tokens: overall?.inp ?? 0, total_output_tokens: overall?.out ?? 0 });
+      } catch (error) {
+        this.logger.error({ error }, 'Cost stats error');
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
+
+    // Sessions list endpoint
+    this.router.get('/sessions', async (req: Request, res: Response) => {
+      try {
+        const { agent_id, since, limit = '50' } = req.query as Record<string, string>;
+        const params: any[] = [];
+        let where = "WHERE session_id IS NOT NULL AND session_id != ''";
+        if (agent_id) { where += ' AND agent_id = ?'; params.push(agent_id); }
+        if (since)    { where += ' AND timestamp >= ?'; params.push(since); }
+
+        const sessions = this.db.prepare(`
+          SELECT
+            session_id,
+            agent_id,
+            MAX(agent_name) as agent_name,
+            COUNT(*) as trace_count,
+            MIN(timestamp) as started_at,
+            MAX(timestamp) as last_seen_at,
+            SUM(cost_usd) as total_cost_usd,
+            SUM(input_tokens + output_tokens) as total_tokens,
+            SUM(CASE WHEN json_extract(observation, '$.error') IS NOT NULL THEN 1 ELSE 0 END) as error_count,
+            GROUP_CONCAT(json_extract(tool_call, '$.tool_name'), ',') as tool_names,
+            MIN(json_extract(input_context, '$.prompt')) as request
+          FROM traces ${where}
+          GROUP BY session_id, agent_id
+          ORDER BY last_seen_at DESC
+          LIMIT ?
+        `).all(...params, Number(limit)) as any[];
+
+        res.json({ sessions, total: sessions.length });
+      } catch (error) {
+        this.logger.error({ error }, 'Sessions list error');
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
+
+    // Evaluation/scoring stats endpoint
+    this.router.get('/stats/eval', async (req: Request, res: Response) => {
+      try {
+        const { agent_id, since } = req.query as Record<string, string>;
+        const params: any[] = [];
+        let where = 'WHERE score IS NOT NULL';
+        if (agent_id) { where += ' AND agent_id = ?'; params.push(agent_id); }
+        if (since)    { where += ' AND timestamp >= ?'; params.push(since); }
+
+        const overall = this.db.prepare(`
+          SELECT
+            COUNT(*) as scored_count,
+            SUM(CASE WHEN score > 0 THEN 1 ELSE 0 END) as thumbs_up,
+            SUM(CASE WHEN score < 0 THEN 1 ELSE 0 END) as thumbs_down,
+            AVG(score) as avg_score
+          FROM traces ${where}
+        `).get(...params) as any;
+
+        const byAgent = this.db.prepare(`
+          SELECT
+            agent_id,
+            COUNT(*) as scored,
+            SUM(CASE WHEN score > 0 THEN 1 ELSE 0 END) as good,
+            SUM(CASE WHEN score < 0 THEN 1 ELSE 0 END) as bad
+          FROM traces ${where}
+          GROUP BY agent_id ORDER BY good DESC
+        `).all(...params);
+
+        const recent = this.db.prepare(`
+          SELECT trace_id, agent_id, tool_call, score, score_label, feedback, scored_at
+          FROM traces ${where}
+          ORDER BY scored_at DESC LIMIT 20
+        `).all(...params) as any[];
+
+        res.json({
+          scored_count: overall?.scored_count ?? 0,
+          thumbs_up:    overall?.thumbs_up    ?? 0,
+          thumbs_down:  overall?.thumbs_down  ?? 0,
+          avg_score:    overall?.avg_score    ?? 0,
+          by_agent:     byAgent,
+          recent_scored: recent.map(r => ({
+            ...r,
+            tool_call: r.tool_call ? JSON.parse(r.tool_call) : null,
+          })),
+        });
+      } catch (error) {
+        this.logger.error({ error }, 'Eval stats error');
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
+
+    // Get single trace  [must be after all /stats/* and /sessions routes]
+    this.router.get('/:traceId', async (req: Request, res: Response) => {
+      try {
+        const trace = this.db.prepare('SELECT * FROM traces WHERE trace_id = ?').get(req.params.traceId) as any;
+        if (!trace) return res.status(404).json({ error: 'Trace not found' });
+        res.json(this.parseTrace(trace));
+      } catch (error) {
+        this.logger.error({ error }, 'Failed to get trace');
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
+
+    // Export traces as forensic bundle
+    this.router.post('/export', async (req: Request, res: Response) => {
+      try {
+        const { agent_id, start_time, end_time, reason } = req.body;
+        let sql = 'SELECT * FROM traces WHERE agent_id = ?';
+        const params: any[] = [agent_id];
+        if (start_time) { sql += ' AND timestamp >= ?'; params.push(start_time); }
+        if (end_time)   { sql += ' AND timestamp <= ?'; params.push(end_time); }
+        sql += ' ORDER BY sequence_number ASC';
+
+        const traces = (this.db.prepare(sql).all(...params) as any[]).map(this.parseTrace);
+        const bundle = TraceBundleSchema.parse({
+          traces,
+          metadata: {
+            agent_id,
+            session_id: req.body.session_id || 'unknown',
+            export_reason: reason || 'Manual export',
+            total_traces: traces.length,
+            hash_chain_valid: validateTraceChain(traces),
+          },
+        });
+        res.json(bundle);
+      } catch (error) {
+        this.logger.error({ error }, 'Failed to export traces');
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
+  }
+
+  // ── Private helpers ────────────────────────────────────────────────────────
+
+  private safeJsonParse(json: string | null | undefined, fallback: any = null): any {
+    if (json == null) return fallback;
+    try { return JSON.parse(json); } catch { return fallback; }
+  }
+
+  /** What AEGIS decided for this call, in the vocabulary /check uses.
+   *  Stored traces carry it implicitly (approval status, validation); every
+   *  Cockpit panel reads `decision`, and before this each derived its own
+   *  answer — the overview called a rejected transfer allowed. */
+  private static decisionOf(approval: string | null | undefined, sv: any): 'allow' | 'block' | 'pending' {
+    const a = String(approval ?? '').toUpperCase()
+    if (a === 'REJECTED' || sv?.passed === false) return 'block'
+    if (a.startsWith('PENDING')) return 'pending'
+    return 'allow'
+  }
+
+  private parseTrace = (t: any) => ({
+    ...t,
+    decision: t.decision ?? TraceAPI.decisionOf(t.approval_status, this.safeJsonParse(t.safety_validation, null)),
+    input_context:     this.safeJsonParse(t.input_context, {}),
+    thought_chain:     this.safeJsonParse(t.thought_chain, { raw_tokens: '' }),
+    tool_call:         this.safeJsonParse(t.tool_call, {}),
+    observation:       this.safeJsonParse(t.observation, {}),
+    safety_validation: this.safeJsonParse(t.safety_validation, null),
+    tags:              this.safeJsonParse(t.tags, null),
+    anomaly_score:     t.anomaly_score ?? 0,
+    anomaly_signals:   this.safeJsonParse(t.anomaly_signals, null),
+  });
+
+  private extractTokenUsage(raw: any): { model: string | null; inputTokens: number; outputTokens: number } {
+    // SDK embeds token data in observation.metadata.token_usage.
+    // Transparent proxy embeds it in a top-level `llm: {...}` field
+    // (populated by the LLM-aware body parser in aegis-proxy). Prefer
+    // whichever surfaces first; either channel is authoritative.
+    let meta: any = {};
+    try {
+      const obs = typeof raw.observation === 'string' ? JSON.parse(raw.observation) : raw.observation;
+      meta = obs?.metadata?.token_usage ?? obs?.metadata ?? {};
+    } catch { /* */ }
+
+    const llm = raw.llm ?? {};
+
+    const model = meta.model ?? raw.model ?? llm.model ?? null;
+    const inputTokens  = Number(meta.input_tokens  ?? meta.prompt_tokens     ?? llm.input_tokens  ?? 0);
+    const outputTokens = Number(meta.output_tokens ?? meta.completion_tokens ?? llm.output_tokens ?? 0);
+    return { model, inputTokens, outputTokens };
+  }
+
+  private async storeTrace(trace: any, raw: any, orgId: string) {
+    this.insertTrace(trace, raw, orgId);
+  }
+
+  private insertTrace(trace: any, raw: any, orgId: string) {
+    const { model, inputTokens, outputTokens } = this.extractTokenUsage(raw);
+    const costUsd = (model && (inputTokens || outputTokens))
+      ? calculateCost(model, inputTokens, outputTokens)
+      : 0;
+
+    const sessionId = raw.session_id ?? raw.metadata?.session_id ?? null;
+
+    // PII redaction on mutable trace fields
+    const { redacted: redactedInput,  count: c1 } = redactObjectPii(trace.input_context);
+    const { redacted: redactedThought, count: c2 } = redactObjectPii(trace.thought_chain);
+    const { redacted: redactedTool,   count: c3 } = redactObjectPii(trace.tool_call);
+    const { redacted: redactedObs,    count: c4 } = redactObjectPii(trace.observation);
+    const piiDetected = c1 + c2 + c3 + c4;
+
+    if (piiDetected > 0) {
+      this.logger.warn({ trace_id: String(trace.trace_id), pii_count: piiDetected }, 'PII redacted from trace');
+    }
+
+    // v0.4: hash the post-redaction content for single-row tamper
+    // detection. IntegrityService recomputes this from the stored
+    // row at verify time; mismatch → someone edited the row's
+    // content but didn't update content_hash.
+    const contentHash = computeContentHash(
+      redactedInput,
+      redactedThought,
+      redactedTool,
+      redactedObs,
+    );
+
+    // Delegation-scoped observability (Toledo et al. arXiv:2606.09692).
+    // The delegation columns were added to `traces` by
+    // RollbackService.ensureColumns; we simply persist whatever the SDK
+    // sent so `rollbackDelegation` can query by delegation_id.
+    const delegationId =
+      (trace as any).delegation_id != null
+        ? String((trace as any).delegation_id)
+        : null;
+    const parentDelegationId =
+      (trace as any).parent_delegation_id != null
+        ? String((trace as any).parent_delegation_id)
+        : null;
+
+    // Phase 1.3 workflow anchoring — SDK-populated fields plumbed
+    // straight through. Non-UUID inputs get nulled rather than
+    // rejected because the trace schema still validates the shape;
+    // the belt is the DB CHECK, the suspenders is here.
+    const workflowNodeId =
+      typeof (trace as any).workflow_node_id === 'string' && (trace as any).workflow_node_id
+        ? String((trace as any).workflow_node_id) : null;
+    const workflowBindingId =
+      typeof (trace as any).workflow_binding_id === 'string' && (trace as any).workflow_binding_id
+        ? String((trace as any).workflow_binding_id) : null;
+
+    // Phase 4b A2A envelope. Same defensive-cast pattern as workflow
+    // anchors above — SDK-populated fields plumbed through, malformed
+    // values coerced to null rather than failing the ingest.
+    const parentAgentId =
+      typeof (trace as any).parent_agent_id === 'string' && (trace as any).parent_agent_id
+        ? String((trace as any).parent_agent_id) : null;
+    const delegationReason =
+      typeof (trace as any).delegation_reason === 'string' && (trace as any).delegation_reason
+        ? String((trace as any).delegation_reason) : null;
+    const capabilityGrant =
+      (trace as any).capability_grant && typeof (trace as any).capability_grant === 'object'
+        ? JSON.stringify((trace as any).capability_grant) : null;
+    const a2aEnvelopeHash =
+      typeof (trace as any).a2a_envelope_hash === 'string' &&
+      /^[0-9a-f]{64}$/.test((trace as any).a2a_envelope_hash)
+        ? String((trace as any).a2a_envelope_hash) : null;
+
+    this.db.prepare(`
+      INSERT INTO traces (
+        trace_id, parent_trace_id, agent_id, timestamp, sequence_number,
+        input_context, thought_chain, tool_call, observation,
+        integrity_hash, previous_hash, signature,
+        safety_validation, approval_status, approved_by,
+        environment, version, tags,
+        model, input_tokens, output_tokens, cost_usd,
+        session_id, pii_detected, content_hash,
+        delegation_id, parent_delegation_id, org_id,
+        workflow_node_id, workflow_binding_id,
+        parent_agent_id, delegation_reason, capability_grant, a2a_envelope_hash,
+        agent_name
+      ) VALUES (
+        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?,
+        ?, ?, ?,
+        ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?,
+        ?, ?, ?,
+        ?, ?,
+        ?, ?, ?, ?,
+        ?
+      )
+    `).run(
+      String(trace.trace_id),
+      trace.parent_trace_id ? String(trace.parent_trace_id) : null,
+      String(trace.agent_id),
+      trace.timestamp instanceof Date ? trace.timestamp.toISOString() : String(trace.timestamp),
+      Number(trace.sequence_number),
+      JSON.stringify(redactedInput),
+      JSON.stringify(redactedThought),
+      JSON.stringify(redactedTool),
+      JSON.stringify(redactedObs),
+      String(trace.integrity_hash),
+      trace.previous_hash ? String(trace.previous_hash) : null,
+      trace.signature ? String(trace.signature) : null,
+      JSON.stringify(trace.safety_validation ?? null),
+      trace.approval_status ? String(trace.approval_status) : null,
+      trace.approved_by ? String(trace.approved_by) : null,
+      String(trace.environment ?? 'DEVELOPMENT'),
+      String(trace.version ?? '1.0.0'),
+      JSON.stringify(trace.tags ?? null),
+      model,
+      inputTokens,
+      outputTokens,
+      costUsd,
+      sessionId,
+      piiDetected,
+      contentHash,
+      delegationId,
+      parentDelegationId,
+      orgId,
+      workflowNodeId,
+      workflowBindingId,
+      parentAgentId,
+      delegationReason,
+      capabilityGrant,
+      a2aEnvelopeHash,
+      agentNameOf(raw),
+    );
+
+    // A call refused before it reached /check — today, the MCP proxy
+    // refusing a tool whose pinned description changed — is still a block,
+    // and counts as one. /check-decided blocks are recorded by /check; they
+    // carry another policy_name, so nothing is counted twice.
+    const sv: any = trace.safety_validation;
+    if (sv && sv.passed === false && sv.policy_name === 'mcp-tool-pin') {
+      try {
+        this.db.prepare(
+          `INSERT INTO violations (agent_id, policy_id, trace_id, violation_type, details) VALUES (?, ?, ?, ?, ?)`,
+        ).run(String(trace.agent_id), 'mcp-tool-pin', String(trace.trace_id), 'mcp_tool_pin',
+              JSON.stringify({ tool: trace.tool_call?.tool_name, reason: sv.violations?.[0] ?? null }));
+      } catch (err) {
+        this.logger.warn({ err }, 'mcp pin violation insert failed');
+      }
+    }
+
+    // Emit OTEL span async, non-blocking
+    const toolName = trace.tool_call?.tool_name ?? trace.tool_call?.function ?? 'unknown';
+    const riskLevel = trace.safety_validation?.risk_level ?? 'LOW';
+    const blocked = trace.safety_validation?.passed === false;
+    const durationMs = raw.observation?.duration_ms ?? 0;
+    const errorMsg = raw.observation?.error ?? null;
+    // Derive the GenAI semconv fields from the tool-call body. We
+    // detect the LLM provider from the trace's `model` column +
+    // tool_call args; this mirrors the columns the SDK already populates
+    // via auto-instrumentation across Anthropic / OpenAI / Gemini /
+    // Mistral / Bedrock.
+    const spanModel = (model ?? raw.tool_call?.arguments?.model ?? raw.tool_call?.model ?? undefined) as string | undefined;
+    const provider = inferProvider(spanModel, toolName);
+    const operationName = inferOperation(toolName, raw.tool_call);
+    const conversationId = (raw as any).session_id ?? (trace as any).session_id ?? undefined;
+    const finishReason = raw.observation?.finish_reason ?? raw.observation?.stop_reason ?? undefined;
+
+    setImmediate(() => emitTraceSpan({
+      traceId: String(trace.trace_id),
+      agentId: String(trace.agent_id),
+      toolName,
+      riskLevel,
+      blocked,
+      costUsd: costUsd,
+      piiDetected,
+      durationMs,
+      error: errorMsg,
+      model: spanModel ?? undefined,
+      provider,
+      inputTokens,
+      outputTokens,
+      operationName,
+      conversationId,
+      finishReason,
+    }));
+  }
+
+  private getPreviousTrace(agentId: string): any | null {
+    return this.db
+      .prepare('SELECT integrity_hash FROM traces WHERE agent_id = ? ORDER BY sequence_number DESC LIMIT 1')
+      .get(agentId);
+  }
+}

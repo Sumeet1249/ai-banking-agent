@@ -1,0 +1,7 @@
+{
+ "harness": "gemini",
+ "scenario": "S1",
+ "error": "timeout",
+ "stdout": "",
+ "elapsed_s": 400.2
+}

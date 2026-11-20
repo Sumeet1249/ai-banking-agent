@@ -1,0 +1,677 @@
+---
+interface Props {
+  title?: string;
+  description?: string;
+  ogImage?: string;
+  canonicalPath?: string;
+  // When set, Layout emits Article-flavored OG tags in addition to
+  // website-flavored ones. Blog posts pass these through.
+  articleMeta?: {
+    publishedTime?: string;   // ISO 8601
+    modifiedTime?:  string;   // ISO 8601
+    author?:        string;
+    section?:       string;   // e.g. "Runtime safety"
+    tags?:          string[];
+  };
+  // When true, suppress the auto-generated BreadcrumbList. Blog +
+  // glossary emit their own with better labels — no need for the
+  // pathname-derived one to compete.
+  suppressAutoBreadcrumb?: boolean;
+}
+const {
+  title = 'AEGIS — runtime safety for AI agents',
+  description = 'AEGIS is the open-source runtime firewall for AI agents. Stop hallucinated tool calls before they hit production — zero code change, SOC 2 framework, multi-tenant, MIT licensed.',
+  ogImage = '/og-image.png',
+  canonicalPath,
+  articleMeta,
+  suppressAutoBreadcrumb = false,
+} = Astro.props;
+
+const siteUrl = Astro.site?.toString().replace(/\/$/, '') ?? 'https://aegistraces.com';
+const canonical = new URL(canonicalPath ?? Astro.url.pathname, siteUrl).toString();
+const ogImageUrl = ogImage.startsWith('http') ? ogImage : `${siteUrl}${ogImage}`;
+
+// Global Organization schema — emitted on every page so any crawler
+// landing anywhere on the site can resolve who owns it, where the
+// source lives, and how to contact the maintainer. `sameAs` links
+// out to GitHub / arXiv work — crawlers use these to cross-verify
+// authority (an org with a real repo + published prior art ranks
+// differently than an org with only a landing page).
+const organizationLd = {
+  '@context': 'https://schema.org',
+  '@type':    'Organization',
+  '@id':      `${siteUrl}/#organization`,
+  name:       'AEGIS',
+  alternateName: 'AgentGuard',
+  url:        siteUrl,
+  logo: {
+    '@type': 'ImageObject',
+    url:     `${siteUrl}/favicon.svg`,
+  },
+  description: 'Open-source runtime safety and cryptographic audit platform for AI agents.',
+  foundingDate: '2025',
+  founder: {
+    '@type': 'Person',
+    name:    'Sumeet1249',
+    affiliation: {
+      '@type': 'CollegeOrUniversity',
+      name:    'University of Southern California',
+    },
+  },
+  contactPoint: [
+    {
+      '@type':       'ContactPoint',
+      email:         'partners@aegistraces.com',
+      contactType:   'sales',
+      areaServed:    'Worldwide',
+      availableLanguage: ['English'],
+    },
+    {
+      '@type':       'ContactPoint',
+      email:         'aojieyuan04@gmail.com',
+      contactType:   'security',
+      areaServed:    'Worldwide',
+    },
+  ],
+  sameAs: [
+    'https://github.com/Sumeet1249/trail',
+    'https://arxiv.org/abs/2606.09692',
+    'https://arxiv.org/abs/2606.07119',
+  ],
+};
+
+// Auto-generated BreadcrumbList from the current pathname. Blog +
+// glossary opt out via suppressAutoBreadcrumb and provide their own
+// (they know the article title; we only know the slug here). Any
+// crawler that lands anywhere non-blog now gets a proper crumb trail
+// — before this, only /blog/* had one. Title-Cases the last segment
+// so /features/predeploy renders as "Features → Predeploy".
+const currentPath = Astro.url.pathname.replace(/\/$/, '') || '/';
+function titleCase(seg: string): string {
+  return seg
+    .split('-')
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+const breadcrumbLd = (() => {
+  if (suppressAutoBreadcrumb || currentPath === '/') return null;
+  const segs = currentPath.split('/').filter(Boolean);
+  const items = [
+    { '@type': 'ListItem', position: 1, name: 'Home', item: siteUrl + '/' },
+  ];
+  let acc = '';
+  segs.forEach((seg, i) => {
+    acc += '/' + seg;
+    items.push({
+      '@type': 'ListItem',
+      position: i + 2,
+      name:    titleCase(seg),
+      item:    siteUrl + acc + '/',
+    } as any);
+  });
+  return {
+    '@context': 'https://schema.org',
+    '@type':    'BreadcrumbList',
+    itemListElement: items,
+  };
+})();
+
+// Global WebSite schema — declares the site as a searchable entity
+// and (critically) tells Google's Sitelinks Searchbox where the
+// in-site search URL lives. Even when we don't ship a real search UI,
+// declaring the /blog?q= URL template lets AI answer engines route
+// users straight to filtered content rather than the landing page.
+const websiteLd = {
+  '@context': 'https://schema.org',
+  '@type':    'WebSite',
+  '@id':      `${siteUrl}/#website`,
+  url:        siteUrl,
+  name:       'AEGIS',
+  publisher:  { '@id': `${siteUrl}/#organization` },
+  inLanguage: 'en-US',
+  potentialAction: {
+    '@type':       'SearchAction',
+    target:        `${siteUrl}/blog?q={search_term_string}`,
+    'query-input': 'required name=search_term_string',
+  },
+};
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content={description} />
+    <meta name="generator" content={Astro.generator} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="canonical" href={canonical} />
+    <link rel="alternate" hreflang="en" href={canonical} />
+    <link rel="alternate" hreflang="x-default" href={canonical} />
+    {/* Feed autodiscovery — lets browsers, RSS readers, Slack unfurl,
+        Feedly, Fraidycat, and (increasingly) AI reading-list agents
+        subscribe without visiting the /changelog page first. */}
+    <link rel="alternate" type="application/feed+json" title="AEGIS — JSON Feed" href="https://aegistraces.com/feed.json" />
+    <link rel="alternate" type="application/atom+xml" title="AEGIS — Atom Feed" href="https://aegistraces.com/atom.xml" />
+    <meta name="theme-color" content="#f2efea" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f1d1e" media="(prefers-color-scheme: dark)" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+
+    {/* Open Graph — website by default, article when articleMeta is set.
+        Article-flavoured OG carries first-class publishedTime + author
+        fields that AI answer engines (especially Bing / Copilot) treat
+        as freshness signals separate from what they see in JSON-LD. */}
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content={articleMeta ? 'article' : 'website'} />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:site_name" content="AEGIS" />
+    <meta property="og:image" content={ogImageUrl} />
+    <meta property="og:image:alt" content={title} />
+    {articleMeta?.publishedTime && <meta property="article:published_time" content={articleMeta.publishedTime} />}
+    {articleMeta?.modifiedTime  && <meta property="article:modified_time"  content={articleMeta.modifiedTime}  />}
+    {articleMeta?.author        && <meta property="article:author"         content={articleMeta.author}        />}
+    {articleMeta?.section       && <meta property="article:section"        content={articleMeta.section}       />}
+    {articleMeta?.tags?.map(t => <meta property="article:tag" content={t} />)}
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImageUrl} />
+    <meta name="twitter:image:alt" content={title} />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Belleza&family=Hanken+Grotesk:wght@300..600&family=JetBrains+Mono:wght@400&display=swap"
+      rel="stylesheet"
+    />
+
+    <script type="application/ld+json" set:html={JSON.stringify(organizationLd)}></script>
+    <script type="application/ld+json" set:html={JSON.stringify(websiteLd)}></script>
+    {breadcrumbLd && <script type="application/ld+json" set:html={JSON.stringify(breadcrumbLd)}></script>}
+
+    <title>{title}</title>
+  </head>
+  <body>
+    <!--
+      Scroll progress bar — thin gradient bar at the top of the
+      viewport that fills as the reader scrolls. Hitachi Vantara uses
+      the same pattern (red→purple under their header). Ours goes
+      sand → sage → deep-sand so it reads as an AEGIS palette indicator
+      rather than a decoration. JS-driven because Astro's lightningcss
+      build strips `animation-timeline: scroll()`.
+    -->
+    <div id="aegis-scroll-progress" aria-hidden="true"></div>
+    <script is:inline>
+      (() => {
+        const bar = document.getElementById('aegis-scroll-progress');
+        if (!bar) return;
+        let raf = 0;
+        const update = () => {
+          const doc = document.documentElement;
+          const max = doc.scrollHeight - doc.clientHeight;
+          const pct = max > 0 ? doc.scrollTop / max : 0;
+          bar.style.transform = 'scaleX(' + pct.toFixed(4) + ')';
+          raf = 0;
+        };
+        const onScroll = () => {
+          if (raf) return;
+          raf = requestAnimationFrame(update);
+        };
+        window.addEventListener('scroll', onScroll, { passive: true });
+        window.addEventListener('resize', onScroll, { passive: true });
+        update();
+      })();
+    </script>
+
+    <slot />
+
+    {/*
+      Scroll-triggered reveal. Any element with `data-reveal` fades +
+      rises into place the first time it enters the viewport. Uses
+      IntersectionObserver so the site never spins the main thread on
+      scroll. Honours `prefers-reduced-motion`: the observer simply
+      applies the "in" class immediately without a transition, so
+      motion-sensitive users still see the content.
+
+      Selectors auto-applied to common structural elements (h2, .card,
+      .bento-card, section headings) so blog posts + landing pages
+      get the effect without changing every markup site.
+    */}
+    <script is:inline>
+      (function () {
+        var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+        // ── Scroll-triggered reveal ────────────────────────────────
+        var targets = document.querySelectorAll(
+          '[data-reveal], [data-ghost], section > h2, .bento-card, .vt-panel, .container-narrow > h2, article header, article h2',
+        );
+        if (reduce || !('IntersectionObserver' in window)) {
+          targets.forEach(function (el) { el.classList.add('in-view'); });
+        } else {
+          var io = new IntersectionObserver(function (entries) {
+            entries.forEach(function (e) {
+              if (e.isIntersecting) {
+                e.target.classList.add('in-view');
+                io.unobserve(e.target);
+              }
+            });
+          }, { rootMargin: '0px 0px -8% 0px', threshold: 0.08 });
+          targets.forEach(function (el) { io.observe(el); });
+        }
+
+        if (reduce) return;
+
+        // ── Magnetic buttons ───────────────────────────────────────
+        // On hover, the button leans ~35% of the cursor offset from
+        // its centre. Small enough (max ~5px) to feel like a physical
+        // pull, not a UI toy. Only rebound on real pointer devices
+        // (touch users don't get hover, so the JS is a no-op for
+        // them anyway).
+        var mq = window.matchMedia('(hover: hover) and (pointer: fine)');
+        if (mq.matches) {
+          document.querySelectorAll('.btn, .btn-secondary, .btn-light, .btn-ghost-light').forEach(function (btn) {
+            var maxPull = 5;
+            function onMove(e) {
+              var r = btn.getBoundingClientRect();
+              var cx = r.left + r.width / 2;
+              var cy = r.top + r.height / 2;
+              var dx = (e.clientX - cx) / (r.width / 2);
+              var dy = (e.clientY - cy) / (r.height / 2);
+              btn.style.setProperty('--mx', (dx * maxPull) + 'px');
+              btn.style.setProperty('--my', (dy * maxPull) + 'px');
+            }
+            btn.addEventListener('pointermove', onMove);
+            btn.addEventListener('pointerleave', function () {
+              btn.style.setProperty('--mx', '0px');
+              btn.style.setProperty('--my', '0px');
+            });
+          });
+        }
+
+        // ── Cursor-follow spotlight ────────────────────────────────
+        // Any container marked `data-spotlight` gets a soft radial
+        // gradient that tracks the pointer. Uses CSS custom
+        // properties so the paint pass stays cheap. Skipped on
+        // touch devices (no pointer to follow).
+        if (mq.matches) {
+          document.querySelectorAll('[data-spotlight]').forEach(function (el) {
+            el.addEventListener('pointermove', function (e) {
+              var r = el.getBoundingClientRect();
+              el.style.setProperty('--sx', (e.clientX - r.left) + 'px');
+              el.style.setProperty('--sy', (e.clientY - r.top)  + 'px');
+            });
+          });
+        }
+
+        // ── Parallax ───────────────────────────────────────────────
+        // Any element with `data-parallax` (optional value = speed,
+        // default 0.15) drifts vertically as it scrolls through the
+        // viewport. Speed is clamped to ±60px so nothing floats out
+        // of its container. Runs on scroll via rAF-throttled loop —
+        // one loop for the whole page, not one per element.
+        var parallaxEls = Array.prototype.slice.call(document.querySelectorAll('[data-parallax]'));
+        if (parallaxEls.length) {
+          var ticking = false;
+          function updateParallax() {
+            var vh = window.innerHeight;
+            parallaxEls.forEach(function (el) {
+              var r = el.getBoundingClientRect();
+              // Element midpoint relative to viewport centre; -1 above,
+              // 0 centred, +1 below. Only run when visible-ish.
+              if (r.bottom < -100 || r.top > vh + 100) return;
+              var mid = (r.top + r.height / 2 - vh / 2) / vh;
+              var speed = parseFloat(el.dataset.parallax) || 0.15;
+              var y = Math.max(-60, Math.min(60, mid * speed * -100));
+              el.style.transform = 'translate3d(0,' + y.toFixed(1) + 'px,0)';
+            });
+            ticking = false;
+          }
+          window.addEventListener('scroll', function () {
+            if (!ticking) { requestAnimationFrame(updateParallax); ticking = true; }
+          }, { passive: true });
+          updateParallax();
+        }
+
+        // ── Count-up numbers ───────────────────────────────────────
+        // Any element `<span data-count="12345">12,345</span>` counts
+        // from 0 up to that value once when scrolled into view. Text
+        // is set to `0` at start, restored to the (formatted) target
+        // on completion. Formatting preserves commas, "%", "$" etc.
+        function fmt(n, tpl) {
+          // Preserve non-digit prefix/suffix from the original text.
+          var m = /^(\D*)([\d.,]+)(\D*)$/.exec(tpl);
+          if (!m) return String(n);
+          var target = m[2].replace(/,/g, '');
+          var decimals = target.indexOf('.') >= 0
+            ? target.length - target.indexOf('.') - 1
+            : 0;
+          var rounded = n.toFixed(decimals);
+          // Re-insert thousands separators if the source had them.
+          if (m[2].indexOf(',') >= 0) {
+            var parts = rounded.split('.');
+            parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+            rounded = parts.join('.');
+          }
+          return m[1] + rounded + m[3];
+        }
+        var countTargets = document.querySelectorAll('[data-count]');
+        if (countTargets.length && 'IntersectionObserver' in window) {
+          countTargets.forEach(function (el) {
+            el.dataset.countTpl = el.textContent.trim();
+            el.textContent = fmt(0, el.dataset.countTpl);
+          });
+          var cio = new IntersectionObserver(function (entries) {
+            entries.forEach(function (e) {
+              if (!e.isIntersecting) return;
+              var el = e.target;
+              cio.unobserve(el);
+              var target = parseFloat(el.dataset.count);
+              if (!isFinite(target)) return;
+              var duration = 1200;
+              var start = performance.now();
+              function tick(now) {
+                var t = Math.min(1, (now - start) / duration);
+                // ease-out-cubic
+                var eased = 1 - Math.pow(1 - t, 3);
+                el.textContent = fmt(target * eased, el.dataset.countTpl);
+                if (t < 1) requestAnimationFrame(tick);
+              }
+              requestAnimationFrame(tick);
+            });
+          }, { threshold: 0.4 });
+          countTargets.forEach(function (el) { cio.observe(el); });
+        }
+      })();
+    </script>
+
+    <style is:global>
+      /* Scroll progress bar — fixed above every sticky header. */
+      #aegis-scroll-progress {
+        position: fixed;
+        top: 0; left: 0; right: 0;
+        height: 2px;
+        z-index: 100;
+        background: var(--sage);
+        opacity: 0.55;
+        transform-origin: left center;
+        transform: scaleX(0);
+        will-change: transform;
+        pointer-events: none;
+      }
+
+      /* Paper, ink and one green. Warm off-white ground, a deep green-black
+         ink instead of #000, sage for anything quiet, and colour spent only
+         on state. The old names (--bg, --text, --muted, --hairline …) are
+         kept because every page reads them; the new ones name the ramp. */
+      :root {
+        --paper: #f2efea;
+        --paper-raised: #ffffff;
+        --ink: #152b2d;
+        --ink-strong: #1e1e1e;
+        --sage: #577b6d;
+        --sage-text: #4f7063;
+        --mint: #e4eae3;
+        --leaf: #dde8d7;
+        --line: #dcd8cf;
+        --ghost: #577b6d6d;
+        --frost: #ffffff82;
+        --deep: #152b2d;
+        --accent-strong: #234839;
+
+        --bg: var(--paper);
+        --surface: #ebe8e1;
+        --surface-2: #e7e3db;
+        --text: var(--ink);
+        --muted: #63636b;
+        --hairline: var(--line);
+        --hairline-strong: #c9c4b8;
+        --accent: var(--ink);
+        --accent-positive: #2d5a4a;
+        --accent-warn: #8a5a12;
+        --accent-error: #a3362d;
+        --link: var(--ink);
+        --font-sans: 'Hanken Grotesk', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+        --font-display: Optima, 'Belleza', Candara, 'Segoe UI', sans-serif;
+        --font-serif: var(--font-display);
+        --font-mono: 'JetBrains Mono', ui-monospace, "SF Mono", monospace;
+        --radius-panel: clamp(0.75rem, 0.4rem + 1.5vw, 2.1875rem);
+        --shadow-card: 0 2px 4px #152b2d10, 0 1px 2px #0000000f, 0 0 1px #0000000f;
+        color-scheme: light;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0f1d1e;
+          --paper: #0f1d1e;
+          --paper-raised: #152b2d;
+          --surface: #152b2d;
+          --surface-2: #1b3436;
+          --text: #f2efea;
+          --ink: #f2efea;
+          --muted: #a9b3ad;
+          --line: #24393a;
+          --hairline: #24393a;
+          --hairline-strong: #35504f;
+          --accent: #f2efea;
+          --link: #f2efea;
+          --frost: #152b2d99;
+          color-scheme: dark;
+        }
+      }
+      * { box-sizing: border-box; }
+      ::selection { background: #bec3e9; color: #152b2d; }
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--font-sans);
+        font-size: 16px;
+        font-weight: 400;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+      }
+      a { color: var(--link); text-decoration: underline; text-underline-offset: 3px; }
+      a:hover { text-decoration: none; }
+      code, pre {
+        font-family: var(--font-mono);
+        font-size: 0.92em;
+      }
+      pre {
+        background: var(--surface);
+        padding: 1rem 1.1rem;
+        border-radius: 8px;
+        overflow-x: auto;
+        font-size: 0.86rem;
+        line-height: 1.55;
+        border: 1px solid var(--hairline);
+      }
+      /* Headings are large and light, set tight: the size carries the
+         emphasis, so the weight does not have to. The display face
+         (Optima) is for lines meant to be read slowly. */
+      h1, h2, h3 {
+        font-family: var(--font-sans);
+        font-weight: 380;
+        letter-spacing: -0.03em;
+        line-height: 1.08;
+        color: var(--ink);
+      }
+      h1 { font-size: clamp(2.6rem, 5.6vw, 4.6rem); line-height: 1.04; margin: 0.5rem 0 1rem; }
+      h2 { font-size: clamp(1.9rem, 3.4vw, 2.9rem); line-height: 1.08; margin: 0 0 1rem; }
+      h3 { font-size: 1.4rem; line-height: 1.25; margin: 0 0 0.6rem; font-weight: 450; letter-spacing: -0.015em; }
+      .display { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.01em; }
+
+      /* Ghost reveal: a line arrives out of focus and settles. Used for
+         the second half of a statement, so the reader meets it a beat
+         after the first. */
+      [data-ghost] {
+        filter: blur(14px);
+        opacity: 0.28;
+        transition: filter 1.1s cubic-bezier(0.2, 0.7, 0.2, 1),
+                    opacity 1.1s cubic-bezier(0.2, 0.7, 0.2, 1);
+      }
+      [data-ghost].in-view { filter: blur(0); opacity: 1; }
+      @media (prefers-reduced-motion: reduce) {
+        [data-ghost] { filter: none; opacity: 1; transition: none; }
+      }
+
+      /* Eyebrow: a small label with a hairline under it. */
+      .eyebrow-line {
+        display: inline-block;
+        font-size: 0.74rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--sage-text);
+        padding-bottom: 0.35rem;
+        border-bottom: 1px solid currentColor;
+        margin: 0 0 1.4rem;
+      }
+      em { font-style: italic; }
+
+      .container {
+        max-width: 1280px;
+        margin: 0 auto;
+        padding: 0 1.5rem;
+      }
+      .container-narrow {
+        max-width: 760px;
+      }
+
+      /* Mobile-first responsive typography + spacing overrides.
+         Big headings that clamp() nicely on desktop still bleed off
+         small viewports because the min-value is 2.6rem. Cap the
+         min at 1.9rem below 500px + tighten container padding so the
+         page never scrolls horizontally on iPhone SE (375px). Also
+         forces long <pre> code blocks to wrap instead of x-overflowing
+         next to body copy. */
+      @media (max-width: 500px) {
+        html, body { font-size: 15px; }
+        h1 { font-size: clamp(1.9rem, 8vw, 2.6rem); line-height: 1.1; }
+        h2 { font-size: clamp(1.5rem, 6vw, 1.9rem); }
+        h3 { font-size: 1.15rem; }
+        .container { padding: 0 1.1rem; }
+        pre { font-size: 0.78rem; padding: 0.85rem 0.9rem; }
+      }
+
+      /* Cursor-follow spotlight — any [data-spotlight] container gets
+         a soft radial gradient tracking the pointer. Uses ::before
+         so the parent can keep its own background; the layer is
+         `pointer-events: none` so it never eats clicks. */
+      [data-spotlight] {
+        position: relative;
+        isolation: isolate;
+      }
+      [data-spotlight]::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        z-index: 0;
+        background: radial-gradient(
+          420px circle at var(--sx, 50%) var(--sy, 50%),
+          color-mix(in oklab, var(--accent) 8%, transparent),
+          transparent 60%
+        );
+        opacity: 0;
+        transition: opacity 0.4s ease;
+      }
+      [data-spotlight]:hover::before { opacity: 1; }
+      [data-spotlight] > * { position: relative; z-index: 1; }
+      @media (prefers-reduced-motion: reduce) {
+        [data-spotlight]::before { display: none; }
+      }
+
+      /* Scroll-reveal — every eligible element starts slightly below
+         and transparent, then eases into place the moment it enters
+         the viewport. Motion is small (12px + 0.55s) so it reads as
+         "the page is breathing" not "everything is animating". */
+      section > h2,
+      .bento-card,
+      .vt-panel,
+      .container-narrow > h2,
+      article header,
+      article h2,
+      [data-reveal] {
+        opacity: 0;
+        transform: translateY(12px);
+        transition: opacity 0.55s cubic-bezier(0.2, 0.7, 0.2, 1),
+                    transform 0.55s cubic-bezier(0.2, 0.7, 0.2, 1);
+        will-change: opacity, transform;
+      }
+      section > h2.in-view,
+      .bento-card.in-view,
+      .vt-panel.in-view,
+      .container-narrow > h2.in-view,
+      article header.in-view,
+      article h2.in-view,
+      [data-reveal].in-view {
+        opacity: 1;
+        transform: translateY(0);
+      }
+      @media (prefers-reduced-motion: reduce) {
+        section > h2,
+        .bento-card,
+        .vt-panel,
+        .container-narrow > h2,
+        article header,
+        article h2,
+        [data-reveal] {
+          opacity: 1;
+          transform: none;
+          transition: none;
+        }
+      }
+
+      /* Buttons / CTAs — with hover glow + magnetic hover tracking.
+         The `--mx` / `--my` custom properties are set by the
+         magnetic-buttons script below; the button uses them to lean
+         2-3px toward the cursor on hover. On tap / active they
+         snap back with a subtle press. */
+      /* Buttons are pills: ink on paper for the one action, a hairline
+         outline for the other. No glow; the magnetic lean stays. */
+      .btn, .btn-secondary, .btn-light, .btn-ghost-light {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.4rem;
+        min-height: 2.6rem;
+        padding: 0.6rem 1.25rem;
+        border-radius: 999px;
+        text-decoration: none;
+        font-family: var(--font-sans);
+        font-weight: 400;
+        font-size: 0.95rem;
+        letter-spacing: -0.01em;
+        position: relative;
+        transition:
+          background 0.2s ease,
+          color 0.2s ease,
+          border-color 0.2s ease,
+          transform 0.18s cubic-bezier(0.2, 0.7, 0.2, 1);
+        transform: translate(calc(var(--mx, 0px) * 0.35), calc(var(--my, 0px) * 0.35));
+        will-change: transform;
+      }
+      .btn { background: var(--deep); color: #f2efea; border: 1px solid var(--deep); }
+      .btn:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
+      .btn-secondary { background: transparent; color: var(--ink); border: 1px solid var(--ink); }
+      .btn-secondary:hover { background: color-mix(in oklab, var(--ink) 6%, transparent); }
+      .btn-light { background: #f2efea; color: #152b2d; border: 1px solid #f2efea; }
+      .btn-light:hover { background: #ffffff; }
+      .btn-ghost-light { background: transparent; color: #f2efea; border: 1px solid #f2efea99; }
+      .btn-ghost-light:hover { border-color: #f2efea; background: #f2efea14; }
+      .btn:active, .btn-secondary:active, .btn-light:active { transform: translate(0, 1px) scale(0.98); }
+      @media (prefers-color-scheme: dark) {
+        .btn { background: #f2efea; color: #152b2d; border-color: #f2efea; }
+        .btn:hover { background: #fff; border-color: #fff; }
+      }
+
+      /* Kill magnetic + glow when the user has opted out of motion. */
+      @media (prefers-reduced-motion: reduce) {
+        .btn, .btn-secondary, .btn-light, .btn-ghost-light { transform: none !important; }
+      }
+
+      hr { border: 0; border-top: 1px solid var(--hairline); margin: 3rem 0; }
+    </style>
+  </body>
+</html>

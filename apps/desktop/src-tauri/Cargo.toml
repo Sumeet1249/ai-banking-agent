@@ -1,0 +1,33 @@
+[package]
+name = "aegis-desktop"
+version = "0.2.0"
+description = "AEGIS — runtime safety layer for AI agents"
+authors = ["Sumeet1249"]
+license = "MIT"
+edition = "2021"
+rust-version = "1.77"
+
+# See https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "aegis_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-shell = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sysinfo = { version = "0.32", default-features = false, features = ["system"] }
+tokio = { version = "1", default-features = false, features = ["time"] }
+
+[features]
+# this feature is used for production builds or when `devPath` points to the filesystem and the built-in dev server is disabled.
+# If you use cargo directly instead of tauri's cli you can use this feature flag to switch between tauri's `dev` and `build` modes.
+# DO NOT REMOVE!!
+custom-protocol = ["tauri/custom-protocol"]

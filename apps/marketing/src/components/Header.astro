@@ -1,0 +1,268 @@
+---
+interface Props {
+  current?: 'home' | 'pricing' | 'docs' | 'security' | 'blog' | 'demo' | 'contact';
+}
+const { current } = Astro.props;
+
+// Middleware populates locals.user on every SSR request (see
+// middleware.ts). Undefined here = anonymous visitor → show
+// Sign in + Start free CTAs. Present = logged-in user → show
+// avatar chip that opens a dropdown to /account + sign-out.
+const user = (Astro.locals as any).user as {
+  id: string;
+  email?: string;
+  user_metadata?: { avatar_url?: string; full_name?: string; name?: string };
+} | null | undefined;
+
+/** Two-char initials from name or email. Used when the OAuth
+ *  provider didn't return an avatar_url (or for magic-link users). */
+function initials(u: NonNullable<typeof user>): string {
+  const name = u.user_metadata?.full_name || u.user_metadata?.name || u.email || '?';
+  const parts = name.split(/[\s@.]+/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return (parts[0]?.slice(0, 2) || '?').toUpperCase();
+}
+const avatarUrl = user?.user_metadata?.avatar_url;
+const displayName = user
+  ? (user.user_metadata?.full_name || user.user_metadata?.name || user.email || 'Account')
+  : '';
+---
+<header class="site-header">
+  <div class="container header-inner">
+    <a href="/" class="brand" aria-label="AEGIS home">
+      <svg class="mark" viewBox="0 0 28 16" aria-hidden="true"><path d="M1 15 L14 3 L27 15" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"/></svg>
+      <span class="brand-name">aegis</span>
+    </a>
+    <nav class="primary">
+      <a href="/demo"     class:list={[{ active: current === 'demo' }]}>Demo</a>
+      <a href="/pricing"  class:list={[{ active: current === 'pricing' }]}>Pricing</a>
+      <a href="/blog"     class:list={[{ active: current === 'blog' }]}>Blog</a>
+      <a href="/docs"     class:list={[{ active: current === 'docs' }]}>Docs</a>
+      <a href="/security" class:list={[{ active: current === 'security' }]}>Security</a>
+      <a href="/contact"  class:list={[{ active: current === 'contact'  }]}>Contact</a>
+      <a href="https://github.com/Sumeet1249/trail" target="_blank" rel="noopener">GitHub</a>
+    </nav>
+    <div class="cta">
+      {user ? (
+        <div class="user-chip" data-user-chip>
+          <button class="user-chip-btn" aria-haspopup="true" aria-expanded="false" data-user-chip-toggle>
+            {avatarUrl
+              ? <img class="user-avatar" src={avatarUrl} alt="" loading="lazy" width="28" height="28" />
+              : <span class="user-avatar user-avatar-initials">{initials(user)}</span>
+            }
+            <span class="user-name">{displayName}</span>
+            <svg class="user-chevron" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 4l3 3 3-3"/></svg>
+          </button>
+          <div class="user-menu" hidden data-user-chip-menu>
+            <div class="user-menu-header">
+              <div class="user-menu-name">{displayName}</div>
+              {user.email && user.email !== displayName && (
+                <div class="user-menu-email">{user.email}</div>
+              )}
+            </div>
+            <a href="/account" class="user-menu-item">Account</a>
+            <a href="/download" class="user-menu-item">Downloads</a>
+            <a href="/pricing" class="user-menu-item">Billing</a>
+            <hr />
+            <a href="/api/auth/signout" class="user-menu-item user-menu-signout">Sign out</a>
+          </div>
+        </div>
+      ) : (
+        <>
+          <a href="/login" class="btn-secondary">Sign in</a>
+          <a href="/signup" class="btn">Start free</a>
+        </>
+      )}
+    </div>
+  </div>
+  <style>
+    /* No rule under the header: it sits on the paper and only frosts
+       once content scrolls beneath it. */
+    .site-header {
+      padding: clamp(0.8rem, 0.6rem + 0.9vw, 1.6rem) 0;
+      position: sticky;
+      top: 0;
+      background: transparent;
+      z-index: 50;
+    }
+    @supports (animation-timeline: scroll()) {
+      .site-header {
+        animation: header-scrolled linear both;
+        animation-timeline: scroll(root);
+        animation-range: 0 120px;
+      }
+      @keyframes header-scrolled {
+        from { background: transparent; -webkit-backdrop-filter: blur(0); backdrop-filter: blur(0); }
+        to {
+          background: color-mix(in oklab, var(--bg) 74%, transparent);
+          -webkit-backdrop-filter: saturate(1.1) blur(14px);
+                  backdrop-filter: saturate(1.1) blur(14px);
+        }
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .site-header { animation: none !important; background: var(--bg); }
+    }
+    .header-inner {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 2rem;
+      max-width: none;
+      padding: 0 clamp(1.1rem, 0.4rem + 3vw, 3.75rem);
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      justify-self: start;
+      text-decoration: none;
+      color: var(--ink);
+      font-family: var(--font-sans);
+      font-weight: 500;
+      font-size: 1.45rem;
+      letter-spacing: -0.04em;
+    }
+    .mark { width: 1.35rem; height: auto; margin-top: 0.05rem; }
+    .primary {
+      display: flex;
+      gap: clamp(1.2rem, 0.6rem + 1.4vw, 2.2rem);
+      font-size: 0.92rem;
+    }
+    .primary a {
+      color: var(--ink);
+      text-decoration: none;
+      padding: 0.3rem 0;
+      opacity: 0.86;
+      transition: opacity 0.15s ease;
+    }
+    .primary a:hover, .primary a.active { opacity: 1; text-decoration: underline; text-underline-offset: 6px; text-decoration-thickness: 1px; }
+    .cta {
+      display: flex;
+      gap: 0.6rem;
+      justify-self: end;
+    }
+    .cta .btn,
+    .cta .btn-secondary {
+      min-height: 2.35rem;
+      padding: 0.45rem 1.05rem;
+      font-size: 0.9rem;
+    }
+    @media (max-width: 900px) {
+      .header-inner { grid-template-columns: 1fr auto; gap: 0.9rem 1rem; }
+      .primary { grid-column: 1 / -1; grid-row: 2; flex-wrap: wrap; gap: 0.6rem 1.1rem; }
+    }
+    @media (max-width: 500px) {
+      .brand { font-size: 1.2rem; }
+      .primary {
+        font-size: 0.86rem;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        scrollbar-width: none;
+        -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent);
+                mask-image: linear-gradient(90deg, #000 85%, transparent);
+      }
+      .primary a { flex: none; }
+      .cta { gap: 0.4rem; }
+      .cta .btn, .cta .btn-secondary { padding: 0.45rem 0.8rem; font-size: 0.85rem; min-height: 40px; }
+    }
+
+    /* ── User chip (logged-in state) ───────────────────────── */
+    .user-chip { position: relative; }
+    .user-chip-btn {
+      display: inline-flex; align-items: center; gap: 0.5rem;
+      padding: 0.3rem 0.75rem 0.3rem 0.35rem;
+      background: transparent;
+      border: 1px solid var(--hairline-strong);
+      border-radius: 999px;
+      color: var(--text); font-family: inherit; font-size: 0.85rem;
+      cursor: pointer;
+      transition: background 0.12s, border-color 0.12s;
+    }
+    .user-chip-btn:hover { background: var(--surface); border-color: var(--accent); }
+    .user-avatar {
+      width: 26px; height: 26px; border-radius: 50%;
+      object-fit: cover;
+      flex-shrink: 0;
+    }
+    .user-avatar-initials {
+      background: linear-gradient(135deg, var(--accent-warn), #6a4a1a);
+      color: var(--bg);
+      display: inline-flex; align-items: center; justify-content: center;
+      font-weight: 600; font-size: 0.7rem; letter-spacing: 0.02em;
+    }
+    .user-name {
+      max-width: 12rem;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      font-family: var(--font-sans);
+    }
+    .user-chevron { flex-shrink: 0; opacity: 0.65; margin-left: 0.1rem; }
+    .user-chip-btn[aria-expanded="true"] .user-chevron { transform: rotate(180deg); }
+
+    .user-menu {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 0.4rem);
+      min-width: 14rem;
+      background: var(--surface);
+      border: 1px solid var(--hairline-strong);
+      border-radius: 10px;
+      padding: 0.35rem;
+      box-shadow: 0 8px 30px rgba(10, 10, 10, 0.10);
+      z-index: 100;
+    }
+    .user-menu[hidden] { display: none; }
+    .user-menu-header {
+      padding: 0.6rem 0.75rem 0.5rem;
+      border-bottom: 1px solid var(--hairline);
+      margin-bottom: 0.35rem;
+    }
+    .user-menu-name { font-weight: 600; font-size: 0.85rem; color: var(--text); }
+    .user-menu-email {
+      font-size: 0.75rem; color: var(--muted);
+      font-family: var(--font-mono);
+      margin-top: 0.15rem;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .user-menu-item {
+      display: block;
+      padding: 0.5rem 0.75rem;
+      color: var(--text);
+      text-decoration: none;
+      font-size: 0.85rem;
+      border-radius: 6px;
+    }
+    .user-menu-item:hover { background: var(--surface-2); }
+    .user-menu-signout { color: var(--accent-error); }
+    .user-menu hr {
+      border: none; border-top: 1px solid var(--hairline);
+      margin: 0.35rem 0;
+    }
+    @media (max-width: 760px) {
+      .user-name { max-width: 8rem; }
+    }
+  </style>
+
+  <script is:inline>
+    // User-chip dropdown: toggle on click, close on outside-click,
+    // close on Escape. Vanilla JS, no framework — Header ships on
+    // every page so the payload has to be tiny.
+    document.querySelectorAll('[data-user-chip]').forEach((chip) => {
+      const btn  = chip.querySelector('[data-user-chip-toggle]');
+      const menu = chip.querySelector('[data-user-chip-menu]');
+      if (!btn || !menu) return;
+      const close = () => { menu.hidden = true; btn.setAttribute('aria-expanded', 'false'); };
+      const open  = () => { menu.hidden = false; btn.setAttribute('aria-expanded', 'true'); };
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        menu.hidden ? open() : close();
+      });
+      document.addEventListener('click', (e) => {
+        if (!chip.contains(e.target)) close();
+      });
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') close();
+      });
+    });
+  </script>
+</header>

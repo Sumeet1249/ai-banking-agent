@@ -1,0 +1,95 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "AEGIS",
+  "version": "0.2.0",
+  "identifier": "com.aojieyuan.aegis",
+  "build": {
+    "beforeDevCommand": "",
+    "devUrl": "http://localhost:3000",
+    "beforeBuildCommand": "node scripts/prepare-sidecars.mjs",
+    "frontendDist": "frontend"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "AEGIS",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600,
+        "decorations": true,
+        "transparent": false,
+        "backgroundColor": "#eae3d2",
+        "titleBarStyle": "Visible",
+        "hiddenTitle": false,
+        "fullscreen": false,
+        "resizable": true,
+        "visible": true,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' http://127.0.0.1:13001 http://127.0.0.1:18080 http://localhost:8080 ws://localhost:8080; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' http://127.0.0.1:13001 http://127.0.0.1:18080 http://localhost:8080 ws://localhost:8080; script-src 'self' 'unsafe-inline'"
+    },
+    "trayIcon": {
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": true,
+      "tooltip": "AEGIS — runtime safety layer",
+      "menuOnLeftClick": false
+    }
+  },
+  "plugins": {
+    "shell": {
+      "open": true
+    },
+    "updater": {
+      "active": true,
+      "endpoints": [
+        "https://github.com/Sumeet1249/trail/releases/latest/download/latest.json"
+      ],
+      "dialog": true,
+      "pubkey": "AEGIS_UPDATER_PUBKEY_PLACEHOLDER"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "category": "DeveloperTool",
+    "copyright": "© 2026 Sumeet1249",
+    "shortDescription": "AEGIS — runtime safety layer for AI agents",
+    "longDescription": "AEGIS is an open-source pre-execution firewall and audit layer for AI agents. Every tool call is classified, run through a cost-aware L1/L2/L3 cascade, and matched against a per-tenant Policy DSL with fail-safe semantics — all before execution, with zero changes to agent code.",
+    "resources": {
+      "../sidecar-stage/gateway-bin":   "gateway-bin",
+      "../sidecar-stage/cockpit-static": "cockpit-static",
+      "../sidecar-stage/node-runtime":   "node-runtime",
+      "../sidecar-stage/tools":          "tools",
+      "../sidecar-stage/proxy-bin":      "proxy-bin"
+    },
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "frameworks": [],
+      "providerShortName": null,
+      "signingIdentity": null,
+      "dmg": {
+        "background": "./dmg-assets/background.png",
+        "windowSize": { "width": 660, "height": 400 },
+        "appPosition": { "x": 180, "y": 200 },
+        "applicationFolderPosition": { "x": 480, "y": 200 }
+      }
+    },
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": ""
+    }
+  }
+}

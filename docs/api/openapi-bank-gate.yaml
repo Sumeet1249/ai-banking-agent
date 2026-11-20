@@ -1,0 +1,701 @@
+openapi: 3.1.0
+info:
+  title: AgentGuard Bank Gate API
+  description: >-
+    Deterministic runtime policy enforcement, transaction authorization, and
+    single-use permit consumption service for AgentGuard AI. Holds Ed25519 public
+    key only; strictly isolates permit verification from financial ledger execution.
+  version: 1.0.0
+servers:
+  - url: http://localhost:4000
+    description: Local Development / Docker Internal Service
+
+paths:
+  /health:
+    get:
+      summary: Service Health Check
+      description: Returns liveness, process uptime, and version.
+      operationId: getHealth
+      responses:
+        '200':
+          description: Service is healthy and operational.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /api/v1/permits/verify:
+    post:
+      summary: Verify Permit Signature and Integrity
+      description: >-
+        Verifies the Ed25519 detached signature on a 22-field Transaction-Bound Permit
+        (TBP) and validates the 7-field canonical transaction digest.
+      operationId: verifyPermit
+      parameters:
+        - $ref: '#/components/parameters/X-Correlation-ID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyPermitRequest'
+      responses:
+        '200':
+          description: Permit signature and canonical digest are valid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerifyPermitResponse'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /api/v1/transactions/authorize:
+    post:
+      summary: Evaluate and Authorize Transaction Pre-Flight
+      description: >-
+        Evaluates an incoming payment request against mandate status, live agent
+        standing, and available account balance before settlement.
+      operationId: authorizeTransaction
+      parameters:
+        - $ref: '#/components/parameters/X-Correlation-ID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthorizeTransactionRequest'
+      responses:
+        '200':
+          description: Pre-authorization decision returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BankDecisionResponse'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '403':
+          $ref: '#/components/responses/403Forbidden'
+        '503':
+          $ref: '#/components/responses/503ServiceUnavailable'
+
+  /api/v1/transactions/execute:
+    post:
+      summary: Atomically Consume Permit and Settle Transfer
+      description: >-
+        Atomically transitions permit state from ISSUED to CONSUMED, verifies live
+        mandate version, commits budget reservation, and submits transfer to TigerBeetle.
+      operationId: executeTransaction
+      parameters:
+        - $ref: '#/components/parameters/X-Correlation-ID'
+        - $ref: '#/components/parameters/Idempotency-Key'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExecuteTransactionRequest'
+      responses:
+        '200':
+          description: Transfer successfully committed and settled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettlementResponse'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+        '403':
+          $ref: '#/components/responses/403Forbidden'
+        '409':
+          $ref: '#/components/responses/409Conflict'
+        '503':
+          $ref: '#/components/responses/503ServiceUnavailable'
+        '504':
+          $ref: '#/components/responses/504GatewayTimeout'
+
+  /api/v1/transactions/{request_id}:
+    get:
+      summary: Get Transaction State by Request ID
+      description: Queries the durable execution state of a transaction.
+      operationId: getTransactionStatus
+      parameters:
+        - name: request_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Current transaction record.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionRecordResponse'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+  /api/v1/transactions/{request_id}/reconcile:
+    post:
+      summary: Reconcile Uncertain Transaction State
+      description: >-
+        Resolves PENDING_RECONCILIATION transactions by querying TigerBeetle using
+        the stable 128-bit transfer identifier.
+      operationId: reconcileTransaction
+      parameters:
+        - name: request_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReconciliationRequest'
+      responses:
+        '200':
+          description: Transaction successfully reconciled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconciliationResponse'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+  /api/v1/mandates/{mandate_id}/revoke:
+    post:
+      summary: Immediate Mandate Revocation Cache Invalidation
+      description: >-
+        Notifies Bank Gate of an immediate customer mandate revocation to evict
+        cached mandate status and reject any in-flight permits.
+      operationId: revokeMandate
+      parameters:
+        - name: mandate_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevokeMandateRequest'
+      responses:
+        '200':
+          description: Mandate revoked in Bank Gate registry.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+components:
+  parameters:
+    X-Correlation-ID:
+      name: X-Correlation-ID
+      in: header
+      required: false
+      schema:
+        type: string
+        format: uuid
+      description: Unique distributed tracing correlation ID.
+    Idempotency-Key:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Unique client-generated transaction UUIDv4.
+
+  responses:
+    400BadRequest:
+      description: Malformed request body, schema violation, or invalid paise value.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/StandardError'
+    401Unauthorized:
+      description: Missing or invalid Ed25519 permit signature.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/StandardError'
+    403Forbidden:
+      description: Security policy violation (MANDATE_REVOKED, PAYLOAD_DIGEST_MISMATCH).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/StandardError'
+    404NotFound:
+      description: Target entity (mandate, transaction, permit) not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/StandardError'
+    409Conflict:
+      description: Permit already consumed or duplicate request ID reuse.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/StandardError'
+    503ServiceUnavailable:
+      description: Downstream ledger or database failure (DEFER).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/StandardError'
+    504GatewayTimeout:
+      description: Upstream ledger connection timed out (PENDING_RECONCILIATION).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/StandardError'
+
+  schemas:
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - service
+        - port
+        - uptime_s
+        - timestamp
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded, maintenance]
+        service:
+          type: string
+          example: agentguard-bank
+        port:
+          type: integer
+          example: 4000
+        uptime_s:
+          type: integer
+          example: 3600
+        timestamp:
+          type: string
+          format: date-time
+
+    VerifyPermitRequest:
+      type: object
+      required:
+        - permit_envelope
+        - canonical_transaction
+      properties:
+        permit_envelope:
+          $ref: '#/components/schemas/PermitEnvelope'
+        canonical_transaction:
+          $ref: '#/components/schemas/CanonicalTransaction'
+
+    VerifyPermitResponse:
+      type: object
+      required:
+        - valid
+        - permit_id
+        - payload_hash
+        - signature_valid
+        - digest_match
+      properties:
+        valid:
+          type: boolean
+        permit_id:
+          type: string
+          format: uuid
+        payload_hash:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        signature_valid:
+          type: boolean
+        digest_match:
+          type: boolean
+        error_code:
+          type: string
+          nullable: true
+
+    AuthorizeTransactionRequest:
+      type: object
+      required:
+        - permit_envelope
+        - request
+      properties:
+        permit_envelope:
+          $ref: '#/components/schemas/PermitEnvelope'
+        request:
+          $ref: '#/components/schemas/PaymentRequest'
+
+    ExecuteTransactionRequest:
+      type: object
+      required:
+        - permit_envelope
+        - request
+      properties:
+        permit_envelope:
+          $ref: '#/components/schemas/PermitEnvelope'
+        request:
+          $ref: '#/components/schemas/PaymentRequest'
+
+    BankDecisionResponse:
+      type: object
+      required:
+        - decision
+        - request_id
+        - decided_at
+      properties:
+        decision:
+          type: string
+          enum: [ALLOW, DENY, ASK, DEFER]
+        request_id:
+          type: string
+          format: uuid
+        reason_code:
+          type: string
+          example: MANDATE_EXPIRED
+        reason_message:
+          type: string
+        decided_at:
+          type: integer
+          description: UTC epoch milliseconds
+
+    SettlementResponse:
+      type: object
+      required:
+        - status
+        - receipt
+        - transfer_id
+        - request_id
+        - amount_paise
+        - currency
+        - settled_at
+      properties:
+        status:
+          type: string
+          enum: [SETTLED, PENDING_RECONCILIATION]
+        receipt:
+          type: string
+          example: RCT_CESC_1001
+        transfer_id:
+          type: string
+          format: uuid
+        request_id:
+          type: string
+          format: uuid
+        amount_paise:
+          type: integer
+          minimum: 1
+          example: 240000
+        currency:
+          type: string
+          enum: [INR]
+        settled_at:
+          type: integer
+          description: UTC epoch milliseconds
+
+    TransactionRecordResponse:
+      type: object
+      required:
+        - request_id
+        - permit_id
+        - state
+        - amount_paise
+        - currency
+        - created_at
+      properties:
+        request_id:
+          type: string
+          format: uuid
+        permit_id:
+          type: string
+          format: uuid
+        transfer_id:
+          type: string
+          format: uuid
+          nullable: true
+        state:
+          type: string
+          enum: [PERMIT_VALIDATED, PENDING_TRANSFER, SETTLED, VOIDED, PENDING_RECONCILIATION]
+        amount_paise:
+          type: integer
+          minimum: 1
+        currency:
+          type: string
+          enum: [INR]
+        created_at:
+          type: integer
+        settled_at:
+          type: integer
+          nullable: true
+
+    ReconciliationRequest:
+      type: object
+      required:
+        - outcome
+      properties:
+        outcome:
+          type: string
+          enum: [COMMIT, RELEASE]
+        reason:
+          type: string
+          maxLength: 256
+
+    ReconciliationResponse:
+      type: object
+      required:
+        - reservation_id
+        - outcome
+        - previous_state
+        - current_state
+        - reconciled_at
+      properties:
+        reservation_id:
+          type: string
+          format: uuid
+        outcome:
+          type: string
+          enum: [COMMIT, RELEASE]
+        previous_state:
+          type: string
+        current_state:
+          type: string
+        reconciled_at:
+          type: integer
+
+    RevokeMandateRequest:
+      type: object
+      required:
+        - customer_ref
+        - revoked_at
+      properties:
+        customer_ref:
+          type: string
+        revoked_at:
+          type: integer
+        reason:
+          type: string
+          maxLength: 256
+
+    GenericSuccessResponse:
+      type: object
+      required:
+        - success
+        - timestamp
+      properties:
+        success:
+          type: boolean
+        timestamp:
+          type: integer
+
+    CanonicalTransaction:
+      type: object
+      description: Exact 7-field canonical transaction model.
+      required:
+        - account_ref
+        - action
+        - amount_paise
+        - currency
+        - invoice_ref
+        - payee_id
+        - purpose
+      additionalProperties: false
+      properties:
+        account_ref:
+          type: string
+        action:
+          type: string
+        amount_paise:
+          type: integer
+          minimum: 1
+        currency:
+          type: string
+          enum: [INR]
+        invoice_ref:
+          type: string
+        payee_id:
+          type: string
+        purpose:
+          type: string
+
+    PaymentRequest:
+      type: object
+      description: Signed agent payment request from Section 1 of CONTRACTS.md.
+      required:
+        - request_id
+        - agent_id
+        - customer_ref
+        - mandate_id
+        - account_ref
+        - action
+        - purpose
+        - payee_id
+        - amount_paise
+        - currency
+        - invoice_ref
+        - timestamp_ms
+        - agent_signature
+      additionalProperties: false
+      properties:
+        request_id:
+          type: string
+          format: uuid
+        agent_id:
+          type: string
+        customer_ref:
+          type: string
+        mandate_id:
+          type: string
+        account_ref:
+          type: string
+        action:
+          type: string
+        purpose:
+          type: string
+        payee_id:
+          type: string
+        amount_paise:
+          type: integer
+          minimum: 1
+        currency:
+          type: string
+          enum: [INR]
+        invoice_ref:
+          type: string
+        timestamp_ms:
+          type: integer
+        approval_ref:
+          type: string
+          nullable: true
+        task_ref:
+          type: string
+          nullable: true
+        agent_signature:
+          type: string
+
+    TransactionBoundPermitPayload:
+      type: object
+      description: Exact 22-field TBP permit from Section 3 of CONTRACTS.md.
+      required:
+        - permit_version
+        - customer_ref
+        - agent_id
+        - delegation_ref
+        - mandate_id
+        - mandate_version
+        - account_ref
+        - action
+        - purpose
+        - amount_paise
+        - currency
+        - payee_id
+        - invoice_ref
+        - request_id
+        - permit_id
+        - nonce
+        - payload_hash
+        - policy_version
+        - reservation_id
+        - issued_at
+        - expires_at
+      additionalProperties: false
+      properties:
+        permit_version:
+          type: string
+          enum: ["1"]
+        customer_ref:
+          type: string
+        agent_id:
+          type: string
+        delegation_ref:
+          type: string
+        mandate_id:
+          type: string
+        mandate_version:
+          type: integer
+          minimum: 1
+        account_ref:
+          type: string
+        action:
+          type: string
+        purpose:
+          type: string
+        amount_paise:
+          type: integer
+          minimum: 1
+        currency:
+          type: string
+          enum: [INR]
+        payee_id:
+          type: string
+        invoice_ref:
+          type: string
+        request_id:
+          type: string
+          format: uuid
+        permit_id:
+          type: string
+          format: uuid
+        nonce:
+          type: string
+          format: uuid
+        payload_hash:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        policy_version:
+          type: string
+        reservation_id:
+          type: string
+          format: uuid
+        issued_at:
+          type: integer
+        expires_at:
+          type: integer
+        approval_ref:
+          type: string
+          nullable: true
+
+    PermitEnvelope:
+      type: object
+      required:
+        - permit
+        - signature
+      additionalProperties: false
+      properties:
+        permit:
+          $ref: '#/components/schemas/TransactionBoundPermitPayload'
+        signature:
+          type: string
+          description: JWS Ed25519 detached signature
+        key_id:
+          type: string
+          description: Key identifier of Gateway signing key
+        algorithm:
+          type: string
+          enum: [Ed25519]
+
+    StandardError:
+      type: object
+      required:
+        - error
+        - reason_code
+        - timestamp
+      properties:
+        error:
+          type: string
+        reason_code:
+          type: string
+          example: PERMIT_ALREADY_CONSUMED
+        details:
+          type: object
+          additionalProperties: true
+        timestamp:
+          type: integer

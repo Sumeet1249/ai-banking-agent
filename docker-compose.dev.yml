@@ -1,0 +1,28 @@
+version: '3.8'
+
+# ── Dev overlay: hot-reload for gateway + cockpit ────────────
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: ./docker/gateway.dev.Dockerfile
+    volumes:
+      - ./packages/gateway-mcp/src:/app/packages/gateway-mcp/src:ro
+      - ./packages/core-schema/src:/app/packages/core-schema/src:ro
+    environment:
+      NODE_ENV: development
+    command: ["npm", "run", "dev", "--workspace=@agentguard/gateway-mcp"]
+
+  cockpit:
+    build:
+      context: .
+      dockerfile: ./docker/cockpit.dev.Dockerfile
+    volumes:
+      - ./apps/compliance-cockpit/src:/app/apps/compliance-cockpit/src:ro
+      - ./apps/compliance-cockpit/public:/app/apps/compliance-cockpit/public:ro
+      - ./packages/core-schema/src:/app/packages/core-schema/src:ro
+    environment:
+      NODE_ENV: development
+    command: ["npm", "run", "dev", "--workspace=@agentguard/compliance-cockpit"]

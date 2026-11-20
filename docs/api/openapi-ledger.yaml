@@ -1,0 +1,481 @@
+openapi: 3.1.0
+info:
+  title: AgentGuard Ledger Adapter API
+  description: >-
+    Financial double-entry ledger integration adapter for AgentGuard AI. Interacts
+    with TigerBeetle distributed ledger via native protocol (or in-memory mock for tests).
+    Provides strict integer-paise calculations and crash-safe Pending -> Post / Void transitions.
+  version: 1.0.0
+servers:
+  - url: http://localhost:4001
+    description: Internal Bank Gate to Ledger Adapter Bridge
+
+paths:
+  /health:
+    get:
+      summary: Ledger Adapter Health and Node Sync Status
+      description: Returns ledger connectivity, TigerBeetle replica health, and pending queues.
+      operationId: getLedgerHealth
+      responses:
+        '200':
+          description: Ledger adapter and replica cluster are healthy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerHealthResponse'
+        '503':
+          description: Ledger cluster disconnected or desynchronized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerHealthResponse'
+
+  /api/v1/accounts/{account_ref}:
+    get:
+      summary: Retrieve Ledger Account Details
+      description: Fetches account metadata and current standing.
+      operationId: getAccount
+      parameters:
+        - name: account_ref
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Account details returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerAccount'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+  /api/v1/accounts/{account_ref}/balance:
+    get:
+      summary: Retrieve Account Liquid and Reserved Balances
+      description: >-
+        Returns balance broken down into posted balance, pending debit reservations,
+        and net available balance in integer paise.
+      operationId: getBalance
+      parameters:
+        - name: account_ref
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Balance details returned in integer paise.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountBalanceResponse'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+  /api/v1/transfers/pending:
+    post:
+      summary: Create Two-Stage Pending Transfer
+      description: >-
+        Locks integer paise funds in the debit account and creates a pending transfer
+        with a 120s reservation TTL. Does not credit the payee until posted.
+      operationId: createPendingTransfer
+      parameters:
+        - $ref: '#/components/parameters/Idempotency-Key'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePendingTransferRequest'
+      responses:
+        '201':
+          description: Pending transfer created and funds reserved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerTransfer'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '409':
+          $ref: '#/components/responses/409Conflict'
+        '422':
+          description: Insufficient funds in integer paise balance.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+        '503':
+          $ref: '#/components/responses/503ServiceUnavailable'
+
+  /api/v1/transfers/{transfer_id}/post:
+    post:
+      summary: Post (Commit) Pending Transfer
+      description: >-
+        Executes stage 2 commit of a pending transfer. Moves locked funds from
+        debit account into credit account permanently.
+      operationId: postTransfer
+      parameters:
+        - name: transfer_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PostTransferRequest'
+      responses:
+        '200':
+          description: Transfer successfully committed and posted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerTransfer'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+        '409':
+          description: Transfer already posted, voided, or expired.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+        '503':
+          $ref: '#/components/responses/503ServiceUnavailable'
+
+  /api/v1/transfers/{transfer_id}/void:
+    post:
+      summary: Void (Cancel) Pending Transfer
+      description: >-
+        Cancels a pending transfer and unlocks the reserved funds back into the
+        customer available balance.
+      operationId: voidTransfer
+      parameters:
+        - name: transfer_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VoidTransferRequest'
+      responses:
+        '200':
+          description: Pending transfer voided and funds released.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerTransfer'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+        '409':
+          $ref: '#/components/responses/409Conflict'
+
+  /api/v1/transfers/{transfer_id}:
+    get:
+      summary: Query Transfer State by 128-bit Transfer ID
+      description: Queries the immutable TigerBeetle transfer record by transfer ID.
+      operationId: getTransfer
+      parameters:
+        - name: transfer_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Transfer record details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerTransfer'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+  /api/v1/reconcile:
+    post:
+      summary: Safe Recovery and Reconciliation Endpoint
+      description: >-
+        Verifies actual TigerBeetle ledger state for uncertain transfers before
+        committing or voiding local reservations. Never blindly debits.
+      operationId: reconcileLedger
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReconciliationRequest'
+      responses:
+        '200':
+          description: Reconciliation outcome resolved cleanly.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconciliationResult'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+components:
+  parameters:
+    Idempotency-Key:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Unique 128-bit UUIDv4 mapped to TigerBeetle transfer ID.
+
+  responses:
+    400BadRequest:
+      description: Invalid integer paise, missing fields, or bad request.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/StandardError'
+    404NotFound:
+      description: Account or Transfer ID not found in ledger.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/StandardError'
+    409Conflict:
+      description: Duplicate transfer submission with mismatched parameters.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/StandardError'
+    503ServiceUnavailable:
+      description: Ledger consensus cluster unreachable (VSR timeout).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/StandardError'
+
+  schemas:
+    LedgerHealthResponse:
+      type: object
+      required:
+        - status
+        - cluster_id
+        - replica_count
+        - connected
+        - timestamp
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded, offline]
+        cluster_id:
+          type: integer
+          example: 0
+        replica_count:
+          type: integer
+          example: 3
+        connected:
+          type: boolean
+        timestamp:
+          type: string
+          format: date-time
+
+    LedgerAccount:
+      type: object
+      required:
+        - account_ref
+        - customer_ref
+        - balance_paise
+        - currency
+        - status
+        - created_at
+        - updated_at
+      properties:
+        account_ref:
+          type: string
+        customer_ref:
+          type: string
+        balance_paise:
+          type: integer
+          minimum: 0
+          example: 10000000
+        currency:
+          type: string
+          enum: [INR]
+        status:
+          type: string
+          enum: [ACTIVE, FROZEN, CLOSED]
+        created_at:
+          type: integer
+        updated_at:
+          type: integer
+
+    AccountBalanceResponse:
+      type: object
+      required:
+        - account_ref
+        - posted_balance_paise
+        - reserved_balance_paise
+        - available_balance_paise
+        - currency
+        - as_of
+      properties:
+        account_ref:
+          type: string
+        posted_balance_paise:
+          type: integer
+          minimum: 0
+          description: Settled funds in integer paise
+        reserved_balance_paise:
+          type: integer
+          minimum: 0
+          description: Active pending 120s reservations in integer paise
+        available_balance_paise:
+          type: integer
+          minimum: 0
+          description: Net spendable funds (posted minus reserved)
+        currency:
+          type: string
+          enum: [INR]
+        as_of:
+          type: integer
+
+    CreatePendingTransferRequest:
+      type: object
+      required:
+        - transfer_id
+        - reservation_id
+        - debit_account
+        - credit_account
+        - amount_paise
+        - currency
+      properties:
+        transfer_id:
+          type: string
+          format: uuid
+        reservation_id:
+          type: string
+          format: uuid
+        debit_account:
+          type: string
+        credit_account:
+          type: string
+        amount_paise:
+          type: integer
+          minimum: 1
+        currency:
+          type: string
+          enum: [INR]
+        timeout_sec:
+          type: integer
+          default: 120
+
+    PostTransferRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          maxLength: 128
+
+    VoidTransferRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          maxLength: 128
+
+    LedgerTransfer:
+      type: object
+      required:
+        - transfer_id
+        - reservation_id
+        - debit_account
+        - credit_account
+        - amount_paise
+        - currency
+        - state
+        - created_at
+      properties:
+        transfer_id:
+          type: string
+          format: uuid
+        reservation_id:
+          type: string
+          format: uuid
+        debit_account:
+          type: string
+        credit_account:
+          type: string
+        amount_paise:
+          type: integer
+          minimum: 1
+        currency:
+          type: string
+          enum: [INR]
+        state:
+          type: string
+          enum: [PENDING, POSTED, VOIDED, PENDING_RECONCILIATION]
+        created_at:
+          type: integer
+        settled_at:
+          type: integer
+          nullable: true
+
+    ReconciliationRequest:
+      type: object
+      required:
+        - reservation_id
+        - outcome
+      properties:
+        reservation_id:
+          type: string
+          format: uuid
+        outcome:
+          type: string
+          enum: [COMMIT, RELEASE]
+        reason:
+          type: string
+
+    ReconciliationResult:
+      type: object
+      required:
+        - reservation_id
+        - outcome
+        - previous_state
+        - current_state
+        - reconciled_at
+      properties:
+        reservation_id:
+          type: string
+          format: uuid
+        outcome:
+          type: string
+          enum: [COMMIT, RELEASE]
+        previous_state:
+          type: string
+        current_state:
+          type: string
+        reconciled_at:
+          type: integer
+
+    StandardError:
+      type: object
+      required:
+        - error
+        - reason_code
+        - timestamp
+      properties:
+        error:
+          type: string
+        reason_code:
+          type: string
+        timestamp:
+          type: integer

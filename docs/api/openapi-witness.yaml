@@ -1,0 +1,340 @@
+openapi: 3.1.0
+info:
+  title: AgentGuard Independent Witness API
+  description: >-
+    Independent audit verification and Signed Tree Head (STH) co-signing service
+    for AgentGuard AI. Operates as an autonomous process possessing its own isolated
+    Ed25519 keypair and dedicated database. Verifies RFC 6962 Merkle inclusion and
+    consistency proofs independently of Gateway assertions.
+  version: 1.0.0
+servers:
+  - url: http://localhost:5000
+    description: Independent Witness Process
+
+paths:
+  /health:
+    get:
+      summary: Witness Service Health
+      description: Returns service liveness, witness ID, active key ID, and checkpoint count.
+      operationId: getWitnessHealth
+      responses:
+        '200':
+          description: Witness is healthy and active.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WitnessHealthResponse'
+
+  /api/v1/public-key:
+    get:
+      summary: Retrieve Witness Public Key
+      description: >-
+        Returns the independent Ed25519 public key in PEM format used to verify
+        witness co-signatures on transparency checkpoints.
+      operationId: getWitnessPublicKey
+      responses:
+        '200':
+          description: Public key in PEM format returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicKeyResponse'
+
+  /public-key:
+    get:
+      summary: Legacy Alias for Witness Public Key
+      description: Convenience alias matching CONTRACTS.md Section 6.
+      operationId: getLegacyPublicKey
+      responses:
+        '200':
+          description: Public key in PEM format returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicKeyResponse'
+
+  /api/v1/checkpoints:
+    post:
+      summary: Submit Merkle Root Checkpoint for Co-Signing
+      description: >-
+        Gateway submits an epoch/seq Merkle tree root. The Witness independently
+        verifies consistency against its historical checkpoint log, computes the
+        detached Ed25519 co-signature, and records the checkpoint.
+      operationId: submitCheckpoint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitCheckpointRequest'
+      responses:
+        '200':
+          description: Checkpoint successfully verified and co-signed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignedCheckpointResponse'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '409':
+          description: Consistency proof failed or sequence regression detected.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+
+  /checkpoints:
+    get:
+      summary: List Checkpoints by Epoch
+      description: Endpoint matching CONTRACTS.md Section 6 (`GET /checkpoints?epoch=<n>`).
+      operationId: getCheckpointsByEpoch
+      parameters:
+        - name: epoch
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+      responses:
+        '200':
+          description: List of co-signed checkpoints for the given epoch.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckpointListResponse'
+
+  /api/v1/checkpoints/{checkpoint_id}:
+    get:
+      summary: Retrieve Specific Co-Signed Checkpoint
+      description: Fetches a single co-signed checkpoint and inclusion proof by ID.
+      operationId: getCheckpointById
+      parameters:
+        - name: checkpoint_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Co-signed checkpoint record returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignedCheckpointResponse'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+  /api/v1/checkpoints/verify:
+    post:
+      summary: Verify Audit Event Proof Against Co-Signed Root
+      description: >-
+        Verifies that a specific audit event hash is included in a co-signed
+        Signed Tree Head (STH) using RFC 6962 audit paths.
+      operationId: verifyAuditProof
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyProofRequest'
+      responses:
+        '200':
+          description: Audit proof verified successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerifyProofResponse'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+
+components:
+  responses:
+    400BadRequest:
+      description: Malformed checkpoint request or invalid Merkle proof.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/StandardError'
+    404NotFound:
+      description: Checkpoint or sequence not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/StandardError'
+
+  schemas:
+    WitnessHealthResponse:
+      type: object
+      required:
+        - status
+        - witness_id
+        - key_id
+        - checkpoints_signed
+        - uptime_s
+        - timestamp
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+        witness_id:
+          type: string
+          example: witness-node-01
+        key_id:
+          type: string
+          example: 8f4e2b1a
+        checkpoints_signed:
+          type: integer
+          example: 104
+        uptime_s:
+          type: integer
+          example: 7200
+        timestamp:
+          type: string
+          format: date-time
+
+    PublicKeyResponse:
+      type: object
+      required:
+        - key_id
+        - algorithm
+        - public_key_pem
+      properties:
+        key_id:
+          type: string
+          example: 8f4e2b1a
+        algorithm:
+          type: string
+          enum: [ed25519]
+        public_key_pem:
+          type: string
+          description: PEM-encoded Ed25519 public key
+
+    SubmitCheckpointRequest:
+      type: object
+      required:
+        - epoch
+        - seq
+        - event_hash
+        - merkle_root
+      properties:
+        epoch:
+          type: integer
+          minimum: 1
+        seq:
+          type: integer
+          minimum: 0
+        event_hash:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        merkle_root:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        tree_size:
+          type: integer
+          minimum: 1
+
+    SignedCheckpointResponse:
+      type: object
+      required:
+        - checkpoint_id
+        - epoch
+        - seq
+        - merkle_root
+        - witness_id
+        - witness_signature
+        - key_id
+        - timestamp_ms
+      properties:
+        checkpoint_id:
+          type: string
+          format: uuid
+        epoch:
+          type: integer
+        seq:
+          type: integer
+        merkle_root:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        tree_size:
+          type: integer
+        witness_id:
+          type: string
+        witness_signature:
+          type: string
+          description: Base64url Ed25519 signature over canonical STH bytes
+        key_id:
+          type: string
+        timestamp_ms:
+          type: integer
+
+    CheckpointListResponse:
+      type: object
+      required:
+        - epoch
+        - total
+        - checkpoints
+      properties:
+        epoch:
+          type: integer
+        total:
+          type: integer
+        checkpoints:
+          type: array
+          items:
+            $ref: '#/components/schemas/SignedCheckpointResponse'
+
+    VerifyProofRequest:
+      type: object
+      required:
+        - leaf_hash
+        - leaf_index
+        - tree_size
+        - root_hash
+        - audit_path
+      properties:
+        leaf_hash:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        leaf_index:
+          type: integer
+          minimum: 0
+        tree_size:
+          type: integer
+          minimum: 1
+        root_hash:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        audit_path:
+          type: array
+          items:
+            type: string
+            pattern: '^[a-f0-9]{64}$'
+
+    VerifyProofResponse:
+      type: object
+      required:
+        - verified
+        - leaf_index
+        - root_hash
+      properties:
+        verified:
+          type: boolean
+        leaf_index:
+          type: integer
+        root_hash:
+          type: string
+
+    StandardError:
+      type: object
+      required:
+        - error
+        - reason_code
+        - timestamp
+      properties:
+        error:
+          type: string
+        reason_code:
+          type: string
+        timestamp:
+          type: integer

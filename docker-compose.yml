@@ -1,0 +1,210 @@
+# ── AgentGuard AI Full-Stack & TigerBeetle Cluster Orchestration ───────────────
+# Usage:
+#   1. Format TigerBeetle replicas (one-time idempotent init):
+#      powershell -File scripts/tigerbeetle-init.ps1
+#      (or ./scripts/tigerbeetle-init.sh on Linux)
+#   2. Start all services:
+#      docker compose up -d
+# Endpoints:
+#   Compliance Cockpit   → http://localhost:3000
+#   Gateway / MCP Proxy  → http://localhost:8080
+#   Bank Gate            → http://localhost:4000
+#   Ledger Adapter       → http://localhost:4001
+#   Witness Notary       → http://localhost:5000
+#   TigerBeetle Node 0   → 127.0.0.1:3001 (172.28.0.2)
+#   TigerBeetle Node 1   → 127.0.0.1:3002 (172.28.0.3)
+#   TigerBeetle Node 2   → 127.0.0.1:3003 (172.28.0.4)
+# ──────────────────────────────────────────────────────────────────────────────
+
+services:
+  # ── TigerBeetle Distributed Consensus Cluster (3 Replicas) ─────────────────
+  tigerbeetle-0:
+    image: ghcr.io/tigerbeetle/tigerbeetle:0.17.9
+    container_name: tigerbeetle-0
+    command: start --addresses=172.28.0.2:3001,172.28.0.3:3001,172.28.0.4:3001 --development /data/0_0.tigerbeetle
+    ports:
+      - "3001:3001"
+    volumes:
+      - tb-data-0:/data
+    security_opt:
+      - seccomp:unconfined
+    networks:
+      agentguard-net:
+        ipv4_address: 172.28.0.2
+    restart: unless-stopped
+
+  tigerbeetle-1:
+    image: ghcr.io/tigerbeetle/tigerbeetle:0.17.9
+    container_name: tigerbeetle-1
+    command: start --addresses=172.28.0.2:3001,172.28.0.3:3001,172.28.0.4:3001 --development /data/0_1.tigerbeetle
+    ports:
+      - "3002:3001"
+    volumes:
+      - tb-data-1:/data
+    security_opt:
+      - seccomp:unconfined
+    networks:
+      agentguard-net:
+        ipv4_address: 172.28.0.3
+    restart: unless-stopped
+
+  tigerbeetle-2:
+    image: ghcr.io/tigerbeetle/tigerbeetle:0.17.9
+    container_name: tigerbeetle-2
+    command: start --addresses=172.28.0.2:3001,172.28.0.3:3001,172.28.0.4:3001 --development /data/0_2.tigerbeetle
+    ports:
+      - "3003:3001"
+    volumes:
+      - tb-data-2:/data
+    security_opt:
+      - seccomp:unconfined
+    networks:
+      agentguard-net:
+        ipv4_address: 172.28.0.4
+    restart: unless-stopped
+
+  # ── AgentGuard Application Services ─────────────────────────────────────────
+  gateway:
+    build:
+      context: .
+      dockerfile: ./docker/gateway.Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      DB_PATH: /data/agentguard.db
+    volumes:
+      - gateway-data:/data
+    networks:
+      - agentguard-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  ledger-adapter:
+    build:
+      context: .
+      dockerfile: ./docker/ledger.Dockerfile
+    ports:
+      - "4001:4001"
+    environment:
+      NODE_ENV: production
+      PORT: 4001
+      DB_PATH: /data/ledger.db
+      # Explicit Backend Selection Contract:
+      #   SQLITE_DEV: Local high-fidelity development/test double-entry emulation
+      #   TIGERBEETLE: Distributed Viewstamped Replication cluster (Phase 6.2)
+      LEDGER_BACKEND: TIGERBEETLE
+      TIGERBEETLE_CLUSTER_ID: "0"
+      TIGERBEETLE_ADDRESSES: "172.28.0.2:3001,172.28.0.3:3001,172.28.0.4:3001"
+    volumes:
+      - ledger-data:/data
+    security_opt:
+      - seccomp:unconfined
+    networks:
+      - agentguard-net
+    depends_on:
+      - tigerbeetle-0
+      - tigerbeetle-1
+      - tigerbeetle-2
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  bank-gate:
+    build:
+      context: .
+      dockerfile: ./docker/bank-gate.Dockerfile
+    ports:
+      - "4000:4000"
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DB_PATH: /data/bank-gate.db
+      LEDGER_ADAPTER_URL: http://ledger-adapter:4001
+    volumes:
+      - bank-gate-data:/data
+    networks:
+      - agentguard-net
+    depends_on:
+      ledger-adapter:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  witness:
+    build:
+      context: .
+      dockerfile: ./docker/witness.Dockerfile
+    ports:
+      - "5000:5000"
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      DB_PATH: /data/witness.db
+    volumes:
+      - witness-data:/data
+    networks:
+      - agentguard-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  cockpit:
+    build:
+      context: .
+      dockerfile: ./docker/cockpit.Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      GATEWAY_URL: http://gateway:8080
+      BANK_GATE_URL: http://bank-gate:4000
+      LEDGER_ADAPTER_URL: http://ledger-adapter:4001
+      WITNESS_URL: http://witness:5000
+      NEXT_PUBLIC_GATEWAY_URL: http://localhost:8080
+      NEXT_PUBLIC_BANK_GATE_URL: http://localhost:4000
+      NEXT_PUBLIC_LEDGER_URL: http://localhost:4001
+      NEXT_PUBLIC_WITNESS_URL: http://localhost:5000
+    networks:
+      - agentguard-net
+    depends_on:
+      gateway:
+        condition: service_healthy
+      bank-gate:
+        condition: service_healthy
+    restart: unless-stopped
+
+networks:
+  agentguard-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  gateway-data:
+  ledger-data:
+  bank-gate-data:
+  witness-data:
+  tb-data-0:
+  tb-data-1:
+  tb-data-2:

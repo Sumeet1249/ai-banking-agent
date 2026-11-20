@@ -1,0 +1,755 @@
+---
+/**
+ * VerticalTabs.astro
+ *
+ * Hitachi-Vantara-style vertical/category selector — a horizontal tab
+ * strip where the active item is marked with a small red dot to the
+ * left of the label plus an underline. Below the strip is a card
+ * whose contents swap per tab.
+ *
+ * Four AEGIS use cases: Fintech · Healthcare · Stablecoin · GenAI.
+ * Content per panel is real: a headline, a stat pair, a short policy
+ * snippet in AEGIS DSL, and a link into the matching blog article.
+ *
+ * Interaction: keyboard-navigable (arrow keys move focus, Enter/Space
+ * activates). No framework — vanilla JS, ~40 lines.
+ */
+
+import BrandIcon from './BrandIcon.astro';
+
+// Brand references are keys into BrandIcon's registry; the icon
+// component owns the slug + domain + display-name mapping so we
+// don't duplicate it here (or maintain ~800 lines of inline SVG
+// paths, as this file used to).
+type BrandKey = string;
+interface Panel {
+  key:      string;
+  label:    string;
+  headline: string;
+  lede:     string;
+  stats:    [string, string][];
+  policy:   string;
+  policyMini: string;        // Compact 4-line yaml, rendered under the CTA
+  readMore: { href: string; text: string };
+  photo:    string;          // Unsplash photo id (part after "photo-")
+  photoAlt: string;
+  brands:   BrandKey[];      // Real companies whose tools/APIs the vertical agent calls
+}
+
+const PANELS: Panel[] = [
+  {
+    key:   'stablecoin',
+    label: 'Stablecoin',
+    headline: 'Treasury agents that can\'t drain the wallet.',
+    lede: 'FATF Travel Rule metadata, wallet allowlist, 2-of-N approval on high-value transfers — enforced at the tool-call layer, before the transaction hits the mempool.',
+    stats: [
+      ['$1,000', 'Travel Rule threshold: automatic originator + beneficiary attachment'],
+      ['2-of-N', 'high-value approval enforced deterministically, not by prompt'],
+    ],
+    policy: `rule: "stablecoin-egress-2of2"
+when:
+  - tool.name == "circle_usdc.transfer"
+  - amount > 10_000_00
+  - wallet NOT IN treasury.allowlist
+require:
+  approvers: 2
+  scope:     "finance-ops"
+action: ESCALATE`,
+    readMore: { href: '/blog/stablecoin-agent-security-travel-rule', text: 'Read the Travel Rule playbook' },
+    policyMini: `rule:    "stablecoin-egress-2of2"
+when:    amount > 10_000_00
+require: wallet IN treasury.allowlist
+action:  ESCALATE`,
+    photo:    '1639762681485-074b7f938ba0',
+    photoAlt: 'Abstract cryptocurrency chain visualisation, warm gold tones',
+    brands:   ['circle', 'coinbase', 'ethereum', 'solana', 'stripe'],
+  },
+  {
+    key:   'fintech',
+    label: 'Fintech',
+    headline: 'Refund agents that survive a PCI-DSS audit.',
+    lede: 'Tokenise cardholder data at the gateway, gate high-value refunds behind 2-of-N approval, and ship a tamper-evident evidence pack the auditor accepts.',
+    stats: [
+      ['80%',  'of a compliance review answered by Req 10 + Req 8 + SOC 2 CC6.1/CC7.2/CC8.1'],
+      ['27m',  'median time from install to first audited tool call'],
+    ],
+    policy: `rule: "refund-high-value-2of2"
+when:
+  - tool.name == "stripe.refund"
+  - amount > 1_000_00
+require:
+  approvers: 2
+  scope:     "finance-ops"
+action: ESCALATE`,
+    readMore: { href: '/blog/ai-agent-safety-fintech-pci-dss', text: 'Read the PCI-DSS playbook' },
+    policyMini: `rule:    "refund-high-value-2of2"
+when:    amount > 1_000_00
+require: approvers: 2, scope: "finance-ops"
+action:  ESCALATE`,
+    // ATM keypad close-up — hand + PIN entry. Warm metallic + skin
+    // tones tie into the site's cream palette; content directly reads
+    // as "payment infrastructure, PCI-DSS ambient" without leaning
+    // stocky. Vetted 2026-07-31 for color+content match.
+    photo:    '1601597111158-2fceff292cdc',
+    photoAlt: 'Close-up of a hand entering a PIN on an ATM keypad — payment-infrastructure security',
+    brands:   ['stripe', 'visa', 'mastercard', 'plaid', 'brex'],
+  },
+  {
+    key:   'healthcare',
+    label: 'Healthcare',
+    headline: 'PHI-safe agents by construction.',
+    lede: 'Every tool call is gated against a HIPAA §164.312 checklist. PHI is tokenised at ingress; audit controls are tamper-evident by default.',
+    stats: [
+      ['7',    'HIPAA Security Rule requirements mapped to tool-call policy'],
+      ['3',    'addressable specs that become required the moment an agent touches PHI'],
+    ],
+    policy: `rule: "phi-egress-baa-only"
+when:
+  - tool.name == "fhir.write"
+  - arg.subject_ref.contains("Patient/")
+require:
+  destination_baa: true
+  min_scope:       "chart-note"
+action: BLOCK`,
+    readMore: { href: '/blog/hipaa-compliant-ai-agents', text: 'Read the HIPAA playbook' },
+    policyMini: `rule:    "phi-egress-baa-only"
+when:    tool.name == "fhir.write"
+require: destination_baa: true
+action:  BLOCK`,
+    // Two clinicians reviewing dashboards on multi-monitor workstation —
+    // white coats + yellow shirt provide warm accent against the cream
+    // page; content reads directly as "reviewing PHI on device", which
+    // is exactly what HIPAA §164.312 audit controls apply to.
+    // Vetted 2026-07-31 for color+content match.
+    photo:    '1666214280391-8ff5bd3c0bf0',
+    photoAlt: 'Two clinicians reviewing patient-data dashboards on a multi-monitor workstation',
+    // Cloud + EMR platforms that host PHI-touching healthcare agents.
+    brands:   ['oracle', 'microsoft', 'google', 'apple', 'aws'],
+  },
+  {
+    key:   'genai',
+    label: 'GenAI',
+    headline: 'The runtime safety layer for any agent stack.',
+    lede: 'Prompt injection, indirect injection via tool outputs, tool-arg exfiltration — every attack surface is a rule + a taint label + a calibrated judge, in that order.',
+    stats: [
+      ['0.69%',  'attack success rate under parameter-level taint (IPIGuard, EMNLP 2025)'],
+      ['3',      'layers: deterministic policy → behavioural anomaly → calibrated judge'],
+    ],
+    policy: `rule: "tool-output-taint-strict"
+when:
+  - tool.arg.origin IN ["web", "email", "pdf"]
+  - target.sink IN ["send_email", "transfer", "file.write"]
+action: BLOCK
+reason: "untrusted-source-to-sink"`,
+    readMore: { href: '/blog/what-is-ai-agent-runtime-safety', text: 'Read the runtime safety guide' },
+    policyMini: `rule:    "tool-output-taint-strict"
+when:    arg.origin IN ["web","email","pdf"]
+require: sink NOT IN sensitive
+action:  BLOCK`,
+    photo:    '1518770660439-4636190af475',
+    photoAlt: 'Compute infrastructure close-up — GPU / motherboard detail',
+    brands:   ['anthropic', 'openai', 'gemini', 'mistral', 'langchain', 'huggingface'],
+  },
+];
+---
+
+<section class="vt" aria-labelledby="vt-heading">
+  <div class="container">
+    <p class="vt-eyebrow">Deploy across verticals</p>
+    <h2 id="vt-heading">Runtime safety, tuned to your regulator.</h2>
+
+    <div class="vt-tablist" role="tablist" aria-label="AEGIS vertical use cases">
+      {PANELS.map((p, i) => (
+        <button
+          type="button"
+          role="tab"
+          id={`vt-tab-${p.key}`}
+          class={`vt-tab ${i === 0 ? 'active' : ''}`}
+          aria-selected={i === 0 ? 'true' : 'false'}
+          aria-controls={`vt-panel-${p.key}`}
+          tabindex={i === 0 ? '0' : '-1'}
+          data-tab={p.key}
+        >
+          <span class="vt-dot" aria-hidden="true"></span>
+          <span class="vt-label">{p.label}</span>
+        </button>
+      ))}
+    </div>
+
+    <div class="vt-panels">
+      {PANELS.map((p, i) => (
+        <article
+          role="tabpanel"
+          id={`vt-panel-${p.key}`}
+          class={`vt-panel ${i === 0 ? 'active' : ''}`}
+          aria-labelledby={`vt-tab-${p.key}`}
+          hidden={i !== 0}
+          data-panel={p.key}
+        >
+          <div class="vt-grid">
+            <div class="vt-copy">
+              <div class="vt-copy-top">
+                <h3>{p.headline}</h3>
+                <p class="vt-lede">{p.lede}</p>
+              </div>
+
+              <dl class="vt-stats">
+                {p.stats.map(([k, v]) => {
+                  // Extract the leading numeric portion so the
+                  // count-up script can animate purely numeric
+                  // stats ("80%", "$1,000", "27m", "7"). Stats
+                  // without a leading number ("2-of-N") stay
+                  // static — no data-count attribute.
+                  const m = /^(\D*)([\d.,]+)(\D*)$/.exec(k);
+                  const target = m ? parseFloat(m[2].replace(/,/g, '')) : null;
+                  return (
+                    <div class="vt-stat">
+                      {target !== null
+                        ? <dt data-count={target}>{k}</dt>
+                        : <dt>{k}</dt>}
+                      <dd>{v}</dd>
+                    </div>
+                  );
+                })}
+              </dl>
+
+              <a class="vt-read" href={p.readMore.href}>
+                {p.readMore.text}
+                <span aria-hidden="true">→</span>
+              </a>
+
+              {/* Compact policy snippet beneath the CTA — fills the
+                  otherwise-empty lower-left with a concrete artefact
+                  from the vertical. No chrome (no dots, no filename),
+                  just the yaml at a small monospace size. */}
+              <pre class="vt-policy-mini" aria-hidden="true">{p.policyMini}</pre>
+            </div>
+
+            <div class="vt-visual" aria-hidden="true" data-parallax="0.12">
+              <figure class="vt-photo">
+                <img
+                  src={`https://images.unsplash.com/photo-${p.photo}?w=1000&h=760&q=80&fit=crop&auto=format`}
+                  alt={p.photoAlt}
+                  width="1000" height="760"
+                  loading="lazy" decoding="async"
+                />
+                <span class={`vt-photo-tint tint-${p.key}`} aria-hidden="true"></span>
+              </figure>
+            </div>
+          </div>
+
+          {/* Full-width brand strip beneath the two-column grid. */}
+          <div class="vt-brands">
+            <p class="vt-brands-label">Compatible with the stack these agents actually call</p>
+            <ul class="vt-brand-row">
+              {p.brands.map(b => (
+                <li class="vt-brand">
+                  <BrandIcon brand={b} size={22} class="vt-brand-mark" />
+                  <span class="vt-brand-name">{b}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </article>
+      ))}
+    </div>
+  </div>
+</section>
+
+<script is:inline>
+  (() => {
+    const root = document.currentScript?.previousElementSibling;
+    if (!root) return;
+    const tabs   = root.querySelectorAll('.vt-tab');
+    const panels = root.querySelectorAll('.vt-panel');
+
+    function activate(key) {
+      tabs.forEach(t => {
+        const on = t.dataset.tab === key;
+        t.classList.toggle('active', on);
+        t.setAttribute('aria-selected', on ? 'true' : 'false');
+        t.setAttribute('tabindex', on ? '0' : '-1');
+      });
+      panels.forEach(p => {
+        const on = p.dataset.panel === key;
+        p.classList.toggle('active', on);
+        if (on) p.removeAttribute('hidden');
+        else    p.setAttribute('hidden', '');
+      });
+    }
+
+    tabs.forEach(t => {
+      t.addEventListener('click', () => activate(t.dataset.tab));
+    });
+
+    // Arrow-key navigation on the tablist.
+    root.querySelector('.vt-tablist')?.addEventListener('keydown', ev => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(ev.key)) return;
+      ev.preventDefault();
+      const list = Array.from(tabs);
+      const cur  = list.findIndex(t => t.classList.contains('active'));
+      let next = cur;
+      if (ev.key === 'ArrowLeft')  next = (cur - 1 + list.length) % list.length;
+      if (ev.key === 'ArrowRight') next = (cur + 1) % list.length;
+      if (ev.key === 'Home')       next = 0;
+      if (ev.key === 'End')        next = list.length - 1;
+      activate(list[next].dataset.tab);
+      list[next].focus();
+    });
+  })();
+</script>
+
+<style>
+  .vt {
+    padding: 6rem 0 5rem;
+    background: var(--bg);
+    border-top: 1px solid var(--hairline);
+  }
+  /* Panel gets an inner container-narrow-esque max so it doesn't
+     stretch to full-bleed on wide screens, but still uses more than
+     the read-optimised text column. */
+  .vt .container { max-width: 1180px; }
+  .vt-eyebrow {
+    text-align: center;
+    font-size: 0.82rem;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    font-weight: 500;
+    margin: 0 0 0.6rem;
+  }
+  .vt h2 {
+    text-align: center;
+    font-family: var(--font-sans); font-weight: 600;
+    font-size: clamp(1.9rem, 3.2vw, 2.4rem);
+    letter-spacing: -0.02em;
+    margin: 0 0 2.5rem;
+    line-height: 1.15;
+  }
+
+  /* ── Tablist ─────────────────────────────────────────────────────── */
+  .vt-tablist {
+    display: flex;
+    gap: 2.4rem;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin: 0 0 2rem;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .vt-tab {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.85rem 0.2rem 1rem;
+    /* Reset every button default so the tab reads as plain text —
+       no rounded button box, no browser focus rectangle. */
+    background: none;
+    border: none;
+    outline: none;
+    appearance: none;
+    -webkit-appearance: none;
+    -webkit-tap-highlight-color: transparent;
+    color: var(--muted);
+    font-family: var(--font-sans);
+    font-size: 1.02rem;
+    font-weight: 500;
+    letter-spacing: -0.005em;
+    cursor: pointer;
+    transition: color 0.18s ease;
+  }
+  .vt-tab:hover { color: var(--text); }
+  /* Keyboard-only focus: soft dashed ring, offset well clear of the
+     underline so the two don't collide. Mouse click never triggers. */
+  .vt-tab:focus-visible {
+    outline: 2px dashed var(--hairline-strong);
+    outline-offset: 6px;
+    border-radius: 4px;
+  }
+
+  /* Red dot on the left, only rendered on active. Uses the accent-warn
+     sand-red so it reads as an AEGIS-palette indicator, not a generic
+     alert. */
+  .vt-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: transparent;
+    transition: background 0.18s ease, transform 0.18s ease;
+    flex-shrink: 0;
+  }
+  .vt-tab.active {
+    color: var(--text);
+  }
+  .vt-tab.active .vt-dot {
+    background: #b04a3a;
+    transform: scale(1.15);
+    box-shadow: 0 0 0 3px rgba(176, 74, 58, 0.16);
+  }
+
+  /* Active tab underline — offset a hair below the label. */
+  .vt-tab::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -1px;
+    height: 2px;
+    background: var(--text);
+    transform: scaleX(0);
+    transform-origin: center;
+    transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .vt-tab.active::after { transform: scaleX(1); }
+
+  /* ── Panels ──────────────────────────────────────────────────────── */
+  .vt-panels {
+    position: relative;
+  }
+  /* Each panel is one unified card — subtle warm bg, thin hairline,
+     soft shadow. Content inside is a two-column grid on top of a
+     full-width brand strip. Tighter padding + gap so the panel reads
+     as a dense editorial card, not a spacious splash. */
+  .vt-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 1.1rem;
+    padding: 1.4rem 1.6rem 1.5rem;
+    margin-top: 1rem;
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 18px;
+    box-shadow:
+      0 24px 60px rgba(10, 10, 10, 0.05),
+      0 2px 6px rgba(10, 10, 10, 0.03);
+    opacity: 0;
+    transform: translateY(6px);
+    animation: vt-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  .vt-panel[hidden] { display: none; }
+  @keyframes vt-in {
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Two-column grid. No min-height — the panel sizes to its content
+     rather than to an arbitrary floor. */
+  .vt-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+    gap: 1.8rem;
+    align-items: stretch;
+  }
+
+  /* Left column — content clusters at the top; the CTA sits directly
+     under the stats (no `space-between` stretch). */
+  .vt-copy {
+    display: flex;
+    flex-direction: column;
+    padding: 0.2rem 0;
+  }
+  .vt-copy h3 {
+    font-family: var(--font-sans); font-weight: 600;
+    font-size: clamp(1.35rem, 2.2vw, 1.7rem);
+    letter-spacing: -0.015em;
+    margin: 0 0 0.6rem;
+    line-height: 1.18;
+    max-width: 24ch;
+  }
+  .vt-lede {
+    color: var(--muted);
+    font-size: 0.94rem;
+    line-height: 1.55;
+    margin: 0;
+    max-width: 46ch;
+  }
+
+  /* Stats — two horizontal blocks separated by a hairline instead of
+     a naive grid. Compact so the panel breathes. */
+  .vt-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    margin: 1.1rem 0 1rem;
+    padding: 0.85rem 0;
+    border-top: 1px solid var(--hairline);
+    border-bottom: 1px solid var(--hairline);
+  }
+  .vt-stat {
+    padding-right: 1rem;
+  }
+  .vt-stat + .vt-stat {
+    padding-right: 0;
+    padding-left: 1rem;
+    border-left: 1px solid var(--hairline);
+  }
+  .vt-stat dt {
+    font-family: var(--font-mono, ui-monospace);
+    font-size: 1.35rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--text);
+    line-height: 1;
+    margin: 0 0 0.3rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .vt-stat dd {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.76rem;
+    line-height: 1.45;
+    max-width: 24ch;
+  }
+
+  .vt-read {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--text);
+    text-decoration: none;
+    font-weight: 500;
+    font-size: 0.9rem;
+    padding-bottom: 0.15rem;
+    border-bottom: 1px solid var(--hairline-strong);
+    transition: gap 0.18s ease, border-color 0.18s ease;
+    align-self: flex-start;
+    margin-top: 0.2rem;
+  }
+  .vt-read:hover {
+    gap: 0.55rem;
+    border-bottom-color: var(--text);
+  }
+
+  /* Compact policy snippet — warm sand surface (matches the panel's
+     painted-canvas palette, no stark black rectangle), monospace text
+     in the site's ink colour, a soft left accent strip so it reads
+     as "quoted config" rather than "terminal window". */
+  .vt-policy-mini {
+    margin: 1.2rem 0 0;
+    padding: 0.7rem 0.9rem 0.75rem 1rem;
+    background: var(--surface-2);
+    color: var(--text);
+    border-left: 3px solid var(--hairline-strong);
+    border-radius: 4px;
+    font-family: var(--font-mono, ui-monospace);
+    font-size: 0.72rem;
+    line-height: 1.6;
+    white-space: pre;
+    overflow-x: auto;
+    box-shadow: 0 1px 2px rgba(10, 10, 10, 0.04);
+  }
+
+  /* ── Right column: photo only. Fills the column, matches the copy
+        column's natural height via `align-items: stretch` on the grid. ── */
+  .vt-visual {
+    display: flex;
+  }
+  .vt-photo {
+    margin: 0;
+    position: relative;
+    flex: 1;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow:
+      0 14px 34px rgba(10, 10, 10, 0.12),
+      0 2px 6px rgba(10, 10, 10, 0.06);
+    background: var(--surface-2);
+    min-height: 240px;
+  }
+  .vt-photo img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  /* Warm painted-canvas tint per vertical — keeps every photo on-brand
+     against the sand background. */
+  .vt-photo-tint {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    mix-blend-mode: multiply;
+    opacity: 0.38;
+  }
+  .tint-fintech    { background: linear-gradient(135deg, #635BFF 0%, transparent 55%), linear-gradient(225deg, #b04a3a 0%, transparent 60%); }
+  .tint-healthcare { background: linear-gradient(135deg, #B7C8C9 0%, transparent 55%), linear-gradient(225deg, #6B7E7F 0%, transparent 60%); }
+  .tint-stablecoin { background: linear-gradient(135deg, #D4B5A8 0%, transparent 55%), linear-gradient(225deg, #7B8B7E 0%, transparent 60%); }
+  .tint-genai      { background: linear-gradient(135deg, #A4B3A0 0%, transparent 55%), linear-gradient(225deg, #8B6F60 0%, transparent 60%); }
+
+  /* ── Full-width brand strip below the two-column grid ──────────── */
+  .vt-brands {
+    margin-top: 0.2rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--hairline);
+    display: flex;
+    align-items: center;
+    gap: 1rem 1.2rem;
+    flex-wrap: wrap;
+  }
+  .vt-brands-label {
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+  .vt-brand-row {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 0.7rem;
+    align-items: center;
+  }
+  .vt-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.25rem 0.55rem 0.25rem 0.3rem;
+    background: var(--bg);
+    border: 1px solid var(--hairline);
+    border-radius: 999px;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+  }
+  .vt-brand:hover {
+    transform: translateY(-1px);
+    border-color: var(--hairline-strong);
+  }
+  /* Real colored brand icon (Simple Icons CDN, favicon fallback). No
+     disc / no colored background — the logo itself is the color. */
+  .vt-brand-mark {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+  }
+  .vt-brand-name {
+    font-size: 0.78rem;
+    color: var(--text);
+    font-weight: 500;
+    letter-spacing: -0.005em;
+    text-transform: capitalize;
+  }
+  /* Code card sits directly below the photo — natural height, no
+     forced flex-grow. Reads as a compact companion artefact. */
+  .vt-code {
+    width: 100%;
+    background: #1a1816;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow:
+      0 12px 30px rgba(10, 10, 10, 0.16),
+      0 2px 6px rgba(10, 10, 10, 0.08);
+  }
+  .vt-code-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.45rem 0.75rem;
+    background: #242220;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  }
+  .vt-code-bar > span:not(.vt-code-file) {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+  }
+  .vt-dot-red { background: #ff5f57; }
+  .vt-dot-yel { background: #febc2e; }
+  .vt-dot-grn { background: #28c840; }
+  .vt-code-file {
+    margin-left: 0.4rem;
+    color: rgba(216, 211, 192, 0.55);
+    font-family: var(--font-mono, ui-monospace);
+    font-size: 0.72rem;
+  }
+  /* Explicit background on the <pre> — a global `pre { background:
+     surface }` rule elsewhere was leaking a light color into the
+     panel, so the code appeared washed out. Explicit dark bg + bright
+     text keeps this panel readable regardless of the parent scope.
+     Smaller font-size + tighter padding so the whole yaml fits inside
+     the panel without horizontal clip. */
+  .vt-code-body {
+    margin: 0;
+    padding: 0.75rem 1rem 0.85rem;
+    background: #1a1816;
+    color: #ffffff;
+    font-family: var(--font-mono, ui-monospace);
+    font-size: 0.72rem;
+    line-height: 1.5;
+    overflow-x: auto;
+    white-space: pre;
+  }
+  /* Simple syntax-color shading via nested spans if we ever add them. */
+  .vt-code-body :global(code) {
+    background: transparent;
+    color: inherit;
+    padding: 0;
+  }
+
+  /* ── Responsive ─────────────────────────────────────────────────── */
+  @media (max-width: 900px) {
+    .vt-panel { padding: 1.5rem; margin: 0.8rem 0.2rem 0; }
+    .vt-grid {
+      grid-template-columns: 1fr;
+      gap: 1.6rem;
+      min-height: auto;
+    }
+    .vt-copy { padding: 0; }
+    .vt-visual {
+      min-height: 260px;
+      order: -1;                              /* photo on top on mobile */
+    }
+    .vt-code {
+      width: 100%;
+    }
+    .vt-stats { padding: 0.9rem 0; }
+    .vt-stat dt { font-size: 1.5rem; }
+    .vt-tablist { gap: 1.4rem; }
+    .vt-tab { font-size: 0.94rem; padding: 0.7rem 0.1rem 0.85rem; }
+    .vt-code-body { font-size: 0.74rem; padding: 0.8rem 1rem; }
+    .vt-brands {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.7rem;
+    }
+    .vt-brand-name { display: none; }
+    .vt-brand { padding: 0.35rem; }
+  }
+
+  /* Below iPhone 15 width — tab strip needs to be swipeable and
+     tighter, brand row wraps to a horizontal chip grid instead of a
+     column list, panel padding shrinks. */
+  @media (max-width: 500px) {
+    .vt-tablist {
+      overflow-x: auto;
+      flex-wrap: nowrap;
+      gap: 1rem;
+      /* Momentum scroll on iOS */
+      -webkit-overflow-scrolling: touch;
+      padding-bottom: 0.35rem;
+    }
+    .vt-tab {
+      flex-shrink: 0;
+      padding: 0.55rem 0.2rem 0.65rem;
+    }
+    .vt-panel { padding: 1.1rem; margin: 0.6rem 0 0; border-radius: 10px; }
+    .vt-grid { gap: 1.1rem; }
+    .vt-visual { min-height: 180px; border-radius: 8px; }
+    .vt-stat dt { font-size: 1.25rem; }
+    .vt-stats { padding: 0.6rem 0; }
+    .vt-code-body { font-size: 0.7rem; padding: 0.7rem 0.85rem; }
+    .vt-brands {
+      /* Horizontal chip row — density beats a long vertical list */
+      flex-direction: row;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
+  }
+
+  /* Reduced motion */
+  @media (prefers-reduced-motion: reduce) {
+    .vt-panel { animation: none; opacity: 1; transform: none; }
+    .vt-tab, .vt-tab::after, .vt-dot { transition: none; }
+  }
+</style>

@@ -1,0 +1,231 @@
+from datetime import datetime
+from enum import Enum
+from typing import Any, Dict, List, Optional
+from uuid import UUID, uuid4
+
+from pydantic import BaseModel, Field, field_validator
+import hashlib
+import json
+
+
+class RiskLevel(str, Enum):
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+    CRITICAL = "CRITICAL"
+
+
+class ApprovalStatus(str, Enum):
+    APPROVED = "APPROVED"
+    PENDING_APPROVAL = "PENDING_APPROVAL"
+    REJECTED = "REJECTED"
+    AUTO_APPROVED = "AUTO_APPROVED"
+
+
+class Environment(str, Enum):
+    DEVELOPMENT = "DEVELOPMENT"
+    STAGING = "STAGING"
+    PRODUCTION = "PRODUCTION"
+
+
+class RetrievedSnippet(BaseModel):
+    source: str
+    content: str
+    relevance_score: float = Field(ge=0.0, le=1.0)
+
+
+class InputContext(BaseModel):
+    prompt: str
+    retrieved_snippets: Optional[List[RetrievedSnippet]] = None
+    system_context: Optional[Dict[str, Any]] = None
+
+
+class ThoughtChain(BaseModel):
+    raw_tokens: str
+    parsed_steps: Optional[List[str]] = None
+    confidence_score: Optional[float] = Field(None, ge=0.0, le=1.0)
+
+
+class ToolCall(BaseModel):
+    tool_name: str
+    function: str
+    arguments: Dict[str, Any]
+    timestamp: datetime
+
+
+class Observation(BaseModel):
+    raw_output: Any
+    error: Optional[str] = None
+    duration_ms: float = Field(gt=0)
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class SafetyValidation(BaseModel):
+    policy_name: str
+    passed: bool
+    violations: Optional[List[str]] = None
+    risk_level: RiskLevel
+    # The gateway check this verdict came from, and for an allow its signed
+    # receipt (AEG1.<payload>.<sig>). The trace hash does not cover this
+    # object; the receipt is what makes an allow verifiable on its own.
+    check_id: Optional[str] = None
+    receipt: Optional[str] = None
+
+
+class AgentActionTrace(BaseModel):
+    trace_id: UUID = Field(default_factory=uuid4)
+    parent_trace_id: Optional[UUID] = None
+
+    # Delegation-scoped observability per Toledo et al. arXiv:2606.09692.
+    # `delegation_id` is the root identifier of the delegation this call
+    # was performed under (bound at ingest time, not reconstructed).
+    # `parent_delegation_id` links a sub-delegation to its parent — used
+    # when an agent spawns sub-agents.
+    delegation_id: Optional[str] = None
+    parent_delegation_id: Optional[str] = None
+
+    # Phase 1.3 workflow anchoring — UUIDs from services/workflow/types.ts.
+    # Optional so pre-Phase-1.3 traces still validate.
+    workflow_node_id: Optional[str] = None
+    workflow_binding_id: Optional[str] = None
+
+    # Phase 4b A2A observability envelope. Populated by A2AScope.
+    # `capability_grant` is a JSON-serializable dict of what the
+    # parent authorised the child to do (tools, budgets, expiries).
+    # Purely observability in v1; gateway persists but does not gate.
+    parent_agent_id: Optional[str] = None
+    delegation_reason: Optional[str] = None
+    capability_grant: Optional[Dict[str, Any]] = None
+    a2a_envelope_hash: Optional[str] = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+
+    agent_id: UUID
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    sequence_number: int = Field(ge=0)
+
+    # Core fields
+    input_context: InputContext
+    thought_chain: ThoughtChain
+    tool_call: ToolCall
+    observation: Observation
+
+    # Security & Integrity
+    integrity_hash: str = Field(pattern=r"^[a-f0-9]{64}$", description="SHA-256 hash")
+    previous_hash: Optional[str] = Field(None, pattern=r"^[a-f0-9]{64}$")
+    signature: Optional[str] = None
+
+    # Safety & Compliance
+    safety_validation: Optional[SafetyValidation] = None
+    approval_status: Optional[ApprovalStatus] = None
+    approved_by: Optional[str] = None
+
+    # Metadata
+    environment: Environment = Environment.DEVELOPMENT
+    version: str = "1.0.0"
+    tags: Optional[List[str]] = None
+
+    @field_validator("integrity_hash", "previous_hash")
+    @classmethod
+    def validate_hash(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and not all(c in "0123456789abcdefABCDEF" for c in v):
+            raise ValueError("Invalid hash format")
+        return v.lower() if v else v
+
+
+class TraceBundle(BaseModel):
+    bundle_id: UUID = Field(default_factory=uuid4)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    traces: List[AgentActionTrace]
+    metadata: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "agent_id": None,
+            "session_id": None,
+            "export_reason": "",
+            "total_traces": 0,
+            "hash_chain_valid": False,
+            "signature": None,
+        }
+    )
+
+
+class CreateTraceRequest(BaseModel):
+    parent_trace_id: Optional[UUID] = None
+
+    # Delegation context — populated by the SDK's DelegationScope stack.
+    # See AgentActionTrace above for the rationale.
+    delegation_id: Optional[str] = None
+    parent_delegation_id: Optional[str] = None
+
+    # Phase 1.3 workflow anchoring — populated by WorkflowScope. Both
+    # are Optional[str] holding a UUID; None means "no workflow scope
+    # active" (fully backward compatible with pre-Phase-1.3 traces).
+    workflow_node_id: Optional[str] = None
+    workflow_binding_id: Optional[str] = None
+
+    # Phase 4b A2A envelope — populated by A2AScope on the child agent
+    # when its startup runs inside `with parent.a2a_scope(...)`.
+    parent_agent_id: Optional[str] = None
+    delegation_reason: Optional[str] = None
+    capability_grant: Optional[Dict[str, Any]] = None
+    a2a_envelope_hash: Optional[str] = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+
+    agent_id: UUID
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    sequence_number: int = Field(ge=0)
+
+    input_context: InputContext
+    thought_chain: ThoughtChain
+    tool_call: ToolCall
+    observation: Observation
+
+    previous_hash: Optional[str] = Field(None, pattern=r"^[a-f0-9]{64}$")
+
+    safety_validation: Optional[SafetyValidation] = None
+    approval_status: Optional[ApprovalStatus] = None
+    approved_by: Optional[str] = None
+
+    environment: Environment = Environment.DEVELOPMENT
+    version: str = "1.0.0"
+    tags: Optional[List[str]] = None
+
+
+class TraceQuery(BaseModel):
+    agent_id: Optional[UUID] = None
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+    risk_level: Optional[RiskLevel] = None
+    approval_status: Optional[ApprovalStatus] = None
+    limit: int = Field(default=100, gt=0, le=1000)
+    offset: int = Field(default=0, ge=0)
+
+
+def calculate_trace_hash(trace: Dict[str, Any]) -> str:
+    """Calculate SHA-256 hash for a trace object."""
+    # Extract relevant fields for hashing
+    hash_content = {
+        "trace_id": str(trace.get("trace_id", "")),
+        "agent_id": str(trace.get("agent_id", "")),
+        "timestamp": str(trace.get("timestamp", "")),
+        "input_context": trace.get("input_context", {}),
+        "thought_chain": trace.get("thought_chain", {}),
+        "tool_call": trace.get("tool_call", {}),
+        "observation": trace.get("observation", {}),
+        "previous_hash": trace.get("previous_hash", ""),
+    }
+
+    # Serialize to JSON with sorted keys for consistency
+    content = json.dumps(hash_content, sort_keys=True, default=str)
+
+    # Calculate SHA-256 hash
+    return hashlib.sha256(content.encode()).hexdigest()
+
+
+def validate_trace_chain(traces: List[AgentActionTrace]) -> bool:
+    """Validate the hash chain integrity of a list of traces."""
+    if not traces:
+        return True
+
+    for i in range(1, len(traces)):
+        if traces[i].previous_hash != traces[i - 1].integrity_hash:
+            return False
+
+    return True
