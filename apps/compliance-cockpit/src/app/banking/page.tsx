@@ -375,7 +375,11 @@ export default function BankingDashboardPage() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setProtectionEnabled(!protectionEnabled)}
+                  onClick={() => {
+                    const next = !protectionEnabled
+                    setProtectionEnabled(next)
+                    setSimulationVerdict('idle')
+                  }}
                   className={cn(
                     'relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none shrink-0',
                     protectionEnabled ? 'bg-emerald-600' : 'bg-slate-500'
@@ -643,26 +647,52 @@ export default function BankingDashboardPage() {
                 />
               </div>
 
-              {/* Status Indicator & Verdict */}
-              {simulationVerdict !== 'idle' ? (
-                <div className="flex items-center justify-between p-3.5 rounded-xl border border-border bg-card/80 backdrop-blur card-depth animate-in fade-in zoom-in-95 duration-200">
-                  <span className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider">
-                    Topology Interception Verdict
-                  </span>
-                  {simulationVerdict === 'blocked' && (
-                    <div className="px-3.5 py-1.5 bg-emerald-500/15 border border-emerald-500/30 rounded-lg text-emerald-600 dark:text-emerald-400 text-xs font-bold flex items-center gap-2 shadow-sm">
-                      <ShieldCheck className="h-4 w-4 text-emerald-500" strokeWidth={1.8} />
-                      DEFLECTED BY AGENTSHIELD GATEWAY — ZERO LOSS (PAISE PRESERVED)
-                    </div>
-                  )}
-                  {simulationVerdict === 'breached' && (
-                    <div className="px-3.5 py-1.5 bg-rose-500/15 border border-rose-500/30 rounded-lg text-rose-600 dark:text-rose-400 text-xs font-bold flex items-center gap-2 shadow-sm">
-                      <ShieldAlert className="h-4 w-4 text-rose-500" strokeWidth={1.8} />
-                      CRITICAL: DIRECT BREACH — FUNDS DRAINED
-                    </div>
-                  )}
-                </div>
-              ) : null}
+              {/* Synchronized Status & Topology Verdict Bar */}
+              <div className="flex items-center justify-between p-3.5 rounded-xl border border-border bg-card/90 backdrop-blur card-depth transition-colors">
+                <span className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider">
+                  Topology Interception Verdict
+                </span>
+
+                {simulationVerdict === 'idle' ? (
+                  <div
+                    className={cn(
+                      'px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 border shadow-sm transition-colors',
+                      globalFreeze
+                        ? 'bg-rose-500/10 text-rose-500 border-rose-500/30'
+                        : protectionEnabled
+                        ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                        : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'
+                    )}
+                  >
+                    {globalFreeze ? (
+                      <>
+                        <Flame className="h-4 w-4 text-rose-500" strokeWidth={1.8} />
+                        <span>EMERGENCY FROZEN · ALL 7 CHANNELS HALTED</span>
+                      </>
+                    ) : protectionEnabled ? (
+                      <>
+                        <ShieldCheck className="h-4 w-4 text-emerald-500" strokeWidth={1.8} />
+                        <span>SHIELD ARMED · PRE-EXECUTION MEDIATION READY (3.8ms)</span>
+                      </>
+                    ) : (
+                      <>
+                        <ShieldAlert className="h-4 w-4 text-amber-500" strokeWidth={1.8} />
+                        <span>BYPASS MODE · ZERO-TRUST DISARMED · RAW ACCESS</span>
+                      </>
+                    )}
+                  </div>
+                ) : simulationVerdict === 'blocked' ? (
+                  <div className="px-3.5 py-1.5 bg-emerald-500/15 border border-emerald-500/30 rounded-lg text-emerald-600 dark:text-emerald-400 text-xs font-bold flex items-center gap-2 shadow-sm animate-in fade-in duration-200">
+                    <ShieldCheck className="h-4 w-4 text-emerald-500" strokeWidth={1.8} />
+                    <span>DEFLECTED BY AGENTSHIELD GATEWAY — ZERO LOSS (PAISE PRESERVED)</span>
+                  </div>
+                ) : (
+                  <div className="px-3.5 py-1.5 bg-rose-500/15 border border-rose-500/30 rounded-lg text-rose-600 dark:text-rose-400 text-xs font-bold flex items-center gap-2 shadow-sm animate-in fade-in duration-200">
+                    <ShieldAlert className="h-4 w-4 text-rose-500" strokeWidth={1.8} />
+                    <span>CRITICAL: DIRECT BREACH — FUNDS DRAINED</span>
+                  </div>
+                )}
+              </div>
 
               {/* Quick Simulation Trigger Bar */}
               <div className="rounded-xl border border-border bg-card p-4 card-depth">

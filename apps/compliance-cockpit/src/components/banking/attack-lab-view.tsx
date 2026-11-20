@@ -1,13 +1,13 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   ShieldAlert, ShieldCheck, Play, RotateCcw, AlertTriangle,
   Lock, CheckCircle2, XCircle, ArrowRight, Zap, RefreshCw,
   FileCode, Terminal, HelpCircle, Cpu, Landmark, Database,
-  Flame, CheckCheck, Sparkles, Layers
+  Flame, CheckCheck, Sparkles, Copy, Check, Activity
 } from 'lucide-react'
-import { useCountUp } from '@/hooks/useCountUp'
+import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 
 export interface AttackScenario {
@@ -85,7 +85,7 @@ export const SCENARIOS: AttackScenario[] = [
   {
     id: 'scenario_7_insider_tamper',
     title: '7. Insider Database Tampering',
-    subtitle: 'DB row altered from ₹1,000 to ₹1,00,000',
+    subtitle: 'DB row altered from ₹1,00,000 to ₹10,00,000',
     owaspId: 'ASI-05',
     riskAmountPaise: 10000000, // ₹1,00,000
     description: 'Privileged insider with root DB access alters historical ledger row to conceal fraudulent debit.',
@@ -123,14 +123,37 @@ export function AttackLabView({
   const setActiveScenario = (sc: AttackScenario) => setInternalActiveScenario(sc)
 
   const [executionResult, setExecutionResult] = useState<any | null>(null)
+  const [visibleLinesCount, setVisibleLinesCount] = useState<number>(0)
+  const [copiedLog, setCopiedLog] = useState<boolean>(false)
 
   const formatPaise = (paise: number) => {
     return '₹' + (paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })
   }
 
+  // Staggered line reveal effect (55ms per line)
+  useEffect(() => {
+    if (!executionResult || !executionResult.narrative) {
+      setVisibleLinesCount(0)
+      return
+    }
+
+    setVisibleLinesCount(1)
+    const totalLines = executionResult.narrative.length
+    const interval = setInterval(() => {
+      setVisibleLinesCount((prev) => {
+        if (prev < totalLines) return prev + 1
+        clearInterval(interval)
+        return prev
+      })
+    }, 55)
+
+    return () => clearInterval(interval)
+  }, [executionResult])
+
   const handleRunScenario = async (scenario: AttackScenario) => {
     setRunningScenarioId(scenario.id)
     setActiveScenario(scenario)
+    setExecutionResult(null)
 
     setTimeout(() => {
       let result: any
@@ -146,10 +169,10 @@ export function AttackLabView({
           amount_saved_paise: scenario.riskAmountPaise,
           simulated_money_lost_paise: 0,
           narrative: [
-            'EMERGENCY GLOBAL KILL-SWITCH ACTIVE.',
-            'All banking gateway channels are frozen.',
-            'Execution halted at gateway boundary before evaluating parameters.',
-            'RESULT: Zero funds moved. Call aborted in 0.2ms. Money protected: ' + formatPaise(scenario.riskAmountPaise),
+            '[SYSTEM] EMERGENCY GLOBAL KILL-SWITCH ACTIVE.',
+            '[FIREWALL] All banking gateway channels are frozen.',
+            '[INTERCEPT] Execution halted at gateway boundary before evaluating parameters.',
+            '[VERDICT] Zero funds moved. Call aborted in 0.2ms. Money protected: ' + formatPaise(scenario.riskAmountPaise),
           ],
           execution_time_ms: 0.2,
         }
@@ -164,11 +187,11 @@ export function AttackLabView({
           amount_saved_paise: 0,
           simulated_money_lost_paise: scenario.riskAmountPaise,
           narrative: [
-            'Adversary triggered attack vector: ' + scenario.subtitle,
-            'RAW DIRECT ACCESS: Zero-Trust Guard is turned OFF.',
-            'No mandate evaluation or intent verification performed.',
-            'BANK CORE EXECUTED RAW TRANSFER: ' + formatPaise(scenario.riskAmountPaise) + ' drained.',
-            'OUTCOME: CRITICAL SECURITY BREACH. Funds permanently lost.',
+            '[INIT] Adversary triggered attack vector: ' + scenario.subtitle,
+            '[GATEWAY] RAW DIRECT ACCESS: Zero-Trust Guard is turned OFF.',
+            '[BYPASS] No mandate evaluation or intent verification performed.',
+            '[BREACH] BANK CORE EXECUTED RAW TRANSFER: ' + formatPaise(scenario.riskAmountPaise) + ' drained.',
+            '[VERDICT] CRITICAL SECURITY BREACH. Funds permanently lost.',
           ],
           execution_time_ms: 12.4,
         }
@@ -183,10 +206,11 @@ export function AttackLabView({
           amount_saved_paise: scenario.riskAmountPaise,
           simulated_money_lost_paise: 0,
           narrative: [
-            'AgentShield Gateway intercepted autonomous payload BEFORE bank execution.',
-            'Cryptographic mandate & anomaly engines evaluated in parallel.',
-            scenario.protectionOnOutcome,
-            'RESULT: Zero funds moved. Call blocked in 3.8ms. Money saved: ' + formatPaise(scenario.riskAmountPaise),
+            '[GATEWAY] AgentShield Gateway intercepted autonomous payload BEFORE bank execution.',
+            '[POLICY] Cryptographic mandate & anomaly engines evaluated in parallel.',
+            '[INTERCEPT] ' + scenario.protectionOnOutcome,
+            '[LEDGER] RFC 6962 Merkle leaf signed and notarized by Independent Witness :5000.',
+            '[VERDICT] Zero funds moved. Call blocked in 3.8ms. Money saved: ' + formatPaise(scenario.riskAmountPaise),
           ],
           execution_time_ms: 3.8,
         }
@@ -197,12 +221,14 @@ export function AttackLabView({
       if (onRunScenario) {
         onRunScenario(scenario, result)
       }
-    }, 600)
+    }, 650)
   }
+
+  const isRunning = runningScenarioId !== null
 
   return (
     <div className="space-y-6">
-      {/* Top Attack Lab Header Strip (No Duplicate Switch or Redundant KPIs) */}
+      {/* Top Banner Strip */}
       <div className="rounded-xl border border-border bg-card p-5 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4 card-depth">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
@@ -211,7 +237,7 @@ export function AttackLabView({
               Attack Lab &amp; Defense Simulator
             </h2>
             <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-primary/10 text-primary border border-primary/20 font-semibold">
-              OWASP Top 10 for LLMs
+              OWASP Top 10 for Agentic AI
             </span>
             <span
               className={cn(
@@ -235,7 +261,6 @@ export function AttackLabView({
           </p>
         </div>
 
-        {/* Action button */}
         <div className="flex items-center gap-2.5 shrink-0">
           <a
             href="/AgentShield-Master-Architecture-and-Demo-Guide.html"
@@ -250,13 +275,13 @@ export function AttackLabView({
         </div>
       </div>
 
-      {/* Main Grid: Scenario Selector vs Live Narration Console */}
+      {/* Main Grid: Left Column (4 cols) vs Right Column (8 cols) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left Column (5 cols): 7 Scenario Cards */}
-        <div className="lg:col-span-5 space-y-3">
+        {/* Left Column (4 cols): 7 OWASP Scenario Selector Rail */}
+        <div className="lg:col-span-4 space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-              <span>Select Attack Scenario</span>
+              <span>OWASP Scenario Rail</span>
             </h3>
             <span className="text-[11px] font-mono text-muted-foreground">7 Scenarios</span>
           </div>
@@ -264,22 +289,30 @@ export function AttackLabView({
           <div className="space-y-2">
             {SCENARIOS.map((sc) => {
               const isSelected = activeScenario.id === sc.id
-              const isRunning = runningScenarioId === sc.id
+              const isCardRunning = runningScenarioId === sc.id
 
               return (
                 <div
                   key={sc.id}
                   onClick={() => setActiveScenario(sc)}
                   className={cn(
-                    'p-3.5 rounded-xl border transition cursor-pointer text-left card-depth select-none',
+                    'group relative p-3.5 rounded-xl border transition-all cursor-pointer text-left card-depth select-none',
                     isSelected
                       ? 'border-primary/50 bg-primary/5 shadow-sm ring-1 ring-primary/20'
                       : 'border-border bg-card hover:bg-secondary/40'
                   )}
                 >
+                  {/* Subtle active left accent bar */}
+                  {isSelected && (
+                    <span
+                      className="absolute left-0 top-2 bottom-2 w-1 rounded-r-full bg-primary"
+                      aria-hidden="true"
+                    />
+                  )}
+
                   <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
+                    <div className="min-w-0 flex-1 pl-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="text-xs font-bold text-foreground truncate">{sc.title}</span>
                         <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-secondary text-muted-foreground border border-border shrink-0 whitespace-nowrap">
                           {sc.owaspId}
@@ -304,7 +337,7 @@ export function AttackLabView({
                           : 'bg-rose-600 hover:bg-rose-500 text-white'
                       )}
                     >
-                      {isRunning ? (
+                      {isCardRunning ? (
                         <RefreshCw className="h-3 w-3 animate-spin" />
                       ) : (
                         <Play className="h-3 w-3 fill-current" />
@@ -313,12 +346,12 @@ export function AttackLabView({
                     </button>
                   </div>
 
-                  <div className="mt-2 text-[11px] font-mono text-muted-foreground flex items-center justify-between border-t border-border/40 pt-1.5">
+                  <div className="mt-2 text-[11px] font-mono text-muted-foreground flex items-center justify-between border-t border-border/40 pt-1.5 pl-1">
                     <span>
-                      At-Risk: <strong className="text-foreground">{formatPaise(sc.riskAmountPaise)}</strong>
+                      At-Risk: <strong className="text-foreground tabular-nums">{formatPaise(sc.riskAmountPaise)}</strong>
                     </span>
                     <span className="text-primary font-medium text-[10px]">
-                      {isSelected ? '● Active' : 'Select →'}
+                      {isSelected ? '● Active' : 'Inspect →'}
                     </span>
                   </div>
                 </div>
@@ -327,9 +360,10 @@ export function AttackLabView({
           </div>
         </div>
 
-        {/* Right Column (7 cols): Execution Pipeline Visualizer + Live Narration */}
-        <div className="lg:col-span-7 rounded-xl border border-border bg-card p-5 space-y-4 flex flex-col justify-between card-depth">
+        {/* Right Column (8 cols): Interactive Live Battleground */}
+        <div className="lg:col-span-8 rounded-xl border border-border bg-card p-5 space-y-4 flex flex-col justify-between card-depth">
           <div>
+            {/* Battleground Header */}
             <div className="flex items-center justify-between border-b border-border pb-3 flex-wrap gap-2">
               <div>
                 <h3 className="text-base font-bold text-foreground flex items-center gap-2">
@@ -344,24 +378,24 @@ export function AttackLabView({
               <button
                 type="button"
                 onClick={() => handleRunScenario(activeScenario)}
-                disabled={runningScenarioId !== null}
+                disabled={isRunning}
                 className={cn(
-                  'px-3.5 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-sm transition active:scale-95',
+                  'px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-sm transition active:scale-95',
                   globalFreeze
-                    ? 'bg-rose-600 hover:bg-rose-500 text-white'
+                    ? 'bg-rose-600/60 text-white cursor-not-allowed'
                     : protectionEnabled
                     ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
                     : 'bg-rose-600 hover:bg-rose-500 text-white'
                 )}
               >
-                {runningScenarioId === activeScenario.id ? (
+                {isRunning ? (
                   <RefreshCw className="h-4 w-4 animate-spin" />
                 ) : (
                   <Play className="h-4 w-4 fill-current" />
                 )}
                 <span>
                   {globalFreeze
-                    ? 'Test under Global Freeze'
+                    ? 'Frozen (Emergency Kill-Switch)'
                     : protectionEnabled
                     ? 'Run Scenario (Protection ON)'
                     : 'Run Scenario (Protection OFF)'}
@@ -369,242 +403,258 @@ export function AttackLabView({
               </button>
             </div>
 
-            {/* Description & Expected Outcome */}
-            <div className="my-4 space-y-3 text-xs">
-              <div className="bg-secondary/30 p-3 rounded-lg border border-border">
-                <span className="font-bold text-foreground">Attack Description:</span>
-                <p className="text-muted-foreground mt-0.5 leading-relaxed">{activeScenario.description}</p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="p-3 rounded-lg border border-rose-500/30 bg-rose-500/10">
-                  <span className="font-bold text-rose-500 flex items-center gap-1 text-[11.5px]">
-                    <XCircle className="h-3.5 w-3.5 shrink-0" strokeWidth={1.6} /> Protection OFF Outcome:
-                  </span>
-                  <p className="text-muted-foreground mt-1 text-[11px] leading-relaxed">
-                    {activeScenario.protectionOffOutcome}
-                  </p>
-                </div>
-
-                <div className="p-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10">
-                  <span className="font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 text-[11.5px]">
-                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0" strokeWidth={1.6} /> Protection ON Outcome:
-                  </span>
-                  <p className="text-muted-foreground mt-1 text-[11px] leading-relaxed">
-                    {activeScenario.protectionOnOutcome}
-                  </p>
-                </div>
-              </div>
+            {/* Description Card */}
+            <div className="my-4 bg-secondary/30 p-3 rounded-lg border border-border text-xs">
+              <span className="font-bold text-foreground">Attack Vector Anatomy:</span>
+              <p className="text-muted-foreground mt-0.5 leading-relaxed">{activeScenario.description}</p>
             </div>
 
-            {/* ── ATOMIC 3-STAGE PIPELINE VISUALIZER (Zero Contradictions) ── */}
-            <div className="rounded-xl border border-border bg-secondary/30 p-3.5 my-3">
-              <div className="flex items-center justify-between text-[11px] font-mono text-muted-foreground mb-2.5">
-                <span className="font-semibold text-foreground">Execution Pipeline State</span>
-                <span>
-                  {executionResult ? `Verdict Latency: ${executionResult.execution_time_ms}ms` : 'Target: < 3.8ms P99'}
+            {/* ── ANIMATED 3-STAGE EXECUTION PIPELINE (SVG/CSS Track) ── */}
+            <div className="rounded-xl border border-border bg-secondary/30 p-4 my-3 relative overflow-hidden">
+              <div className="flex items-center justify-between text-[11px] font-mono text-muted-foreground mb-3">
+                <span className="font-semibold text-foreground flex items-center gap-1.5">
+                  <Activity className="h-3.5 w-3.5 text-primary" strokeWidth={1.6} />
+                  Execution Pipeline &amp; Telemetry Ray
+                </span>
+                <span className="px-2 py-0.5 rounded bg-muted text-[10px] font-mono">
+                  Simulation Latency:{' '}
+                  <strong className="text-foreground">
+                    {executionResult
+                      ? `${executionResult.execution_time_ms} ms`
+                      : protectionEnabled
+                      ? '3.8 ms P99'
+                      : '12.4 ms Unfiltered'}
+                  </strong>
                 </span>
               </div>
 
-              <div className="flex items-center gap-2">
-                {/* Stage 1: Autonomous Agent */}
-                <div className="flex-1 rounded-lg border border-border bg-card p-2.5 flex flex-col items-center gap-1 shadow-sm text-center">
-                  <Cpu className="h-4 w-4 text-cyan-500" strokeWidth={1.6} />
-                  <span className="font-semibold text-[11px] text-foreground">1. Agent Payload</span>
-                  <span className="text-[9.5px] font-mono text-muted-foreground">Autonomous Call</span>
-                </div>
-
-                {/* Connector Arrow */}
-                <div className="text-muted-foreground/50 shrink-0">
-                  <ArrowRight className="h-3.5 w-3.5" strokeWidth={1.6} />
-                </div>
-
-                {/* Stage 2: AgentShield Gateway */}
+              {/* 3 Pipeline Nodes & Connectors */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-center relative z-10">
+                {/* Stage 1: Agent Payload */}
                 <div
                   className={cn(
-                    'flex-1 rounded-lg border p-2.5 flex flex-col items-center gap-1 shadow-sm transition-colors text-center',
+                    'rounded-lg border border-border bg-card p-3 flex flex-col items-center gap-1 shadow-sm text-center transition-all',
+                    isRunning && 'ring-2 ring-cyan-500/40'
+                  )}
+                >
+                  <Cpu className="h-5 w-5 text-cyan-500" strokeWidth={1.6} />
+                  <span className="font-semibold text-xs text-foreground">1. Agent Payload</span>
+                  <span className="text-[10px] font-mono text-muted-foreground">Autonomous Execution</span>
+                  <span className="text-[9.5px] font-mono text-cyan-600 dark:text-cyan-400 mt-0.5">
+                    {formatPaise(activeScenario.riskAmountPaise)}
+                  </span>
+                </div>
+
+                {/* Stage 2: AgentShield Policy Gate */}
+                <div
+                  className={cn(
+                    'rounded-lg border p-3 flex flex-col items-center gap-1 shadow-sm transition-all text-center',
                     globalFreeze
                       ? 'border-rose-500/40 bg-rose-500/10 text-rose-500'
                       : protectionEnabled
                       ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                      : 'border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                      : 'border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400',
+                    isRunning && protectionEnabled && 'animate-pulse ring-2 ring-emerald-500/40'
                   )}
                 >
                   {globalFreeze ? (
-                    <Flame className="h-4 w-4 text-rose-500" strokeWidth={1.6} />
+                    <Flame className="h-5 w-5 text-rose-500" strokeWidth={1.6} />
                   ) : protectionEnabled ? (
-                    <ShieldCheck className="h-4 w-4 text-emerald-500" strokeWidth={1.6} />
+                    <ShieldCheck className="h-5 w-5 text-emerald-500" strokeWidth={1.6} />
                   ) : (
-                    <ShieldAlert className="h-4 w-4 text-amber-500" strokeWidth={1.6} />
+                    <ShieldAlert className="h-5 w-5 text-amber-500" strokeWidth={1.6} />
                   )}
-                  <span className="font-semibold text-[11px]">2. Policy Shield</span>
-                  <span className="text-[9.5px] font-mono font-bold">
+                  <span className="font-semibold text-xs">2. Policy Gate</span>
+                  <span className="text-[10px] font-mono font-bold">
                     {globalFreeze
                       ? 'FROZEN · KILL-SWITCH'
                       : protectionEnabled
                       ? 'INTERCEPTED · 3.8ms'
                       : 'BYPASSED · GUARD OFF'}
                   </span>
-                </div>
-
-                {/* Connector Arrow */}
-                <div className="text-muted-foreground/50 shrink-0">
-                  <ArrowRight className="h-3.5 w-3.5" strokeWidth={1.6} />
+                  <span className="text-[9.5px] font-mono opacity-80 mt-0.5">
+                    {protectionEnabled ? 'Ed25519 & Mandate Gate' : 'Direct Pass-Through'}
+                  </span>
                 </div>
 
                 {/* Stage 3: Bank Core Rail */}
                 <div
                   className={cn(
-                    'flex-1 rounded-lg border p-2.5 flex flex-col items-center gap-1 shadow-sm text-center transition-colors',
+                    'rounded-lg border p-3 flex flex-col items-center gap-1 shadow-sm text-center transition-all',
                     globalFreeze
                       ? 'border-border bg-card text-muted-foreground'
                       : !protectionEnabled
                       ? 'border-rose-500 bg-rose-500/15 text-rose-600 dark:text-rose-400'
-                      : 'border-emerald-500/30 bg-emerald-500/5 text-emerald-600 dark:text-emerald-400'
+                      : 'border-emerald-500/30 bg-emerald-500/5 text-emerald-600 dark:text-emerald-400',
+                    isRunning && !protectionEnabled && 'animate-bounce ring-2 ring-rose-500/40'
                   )}
                 >
                   <Landmark
                     className={cn(
-                      'h-4 w-4',
+                      'h-5 w-5',
                       !protectionEnabled && !globalFreeze ? 'text-rose-500' : 'text-primary'
                     )}
                     strokeWidth={1.6}
                   />
-                  <span className="font-semibold text-[11px]">3. Bank Rail</span>
-                  <span className="text-[9.5px] font-mono font-bold">
+                  <span className="font-semibold text-xs">3. Bank Core Rail</span>
+                  <span className="text-[10px] font-mono font-bold">
                     {globalFreeze
                       ? 'HALTED · ZERO EXECUTIONS'
                       : !protectionEnabled
                       ? 'BREACHED · FUNDS DRAINED'
                       : 'UNTOUCHED · ₹0 MOVED'}
                   </span>
+                  <span className="text-[9.5px] font-mono opacity-80 mt-0.5">
+                    {!protectionEnabled ? 'TigerBeetle Debited' : 'Isolated from Payload'}
+                  </span>
                 </div>
               </div>
             </div>
 
-            {/* Scenario 7 Deep Link to Merkle Ledger */}
-            {activeScenario.id === 'scenario_7_insider_tamper' && onOpenLedger && (
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 flex items-center justify-between text-xs my-2">
-                <span className="text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1.5">
-                  <Database className="h-3.5 w-3.5" strokeWidth={1.6} />
-                  Simulate raw SQL row modification and cascade failure in Merkle Ledger:
+            {/* Side-by-Side Outcome Comparison Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 my-3">
+              <div className="p-3.5 rounded-lg border border-rose-500/25 bg-rose-500/5">
+                <span className="font-bold text-rose-500 flex items-center gap-1.5 text-xs">
+                  <XCircle className="h-4 w-4 shrink-0" strokeWidth={1.6} /> Protection OFF Outcome:
                 </span>
-                <button
-                  type="button"
-                  onClick={onOpenLedger}
-                  className="px-2.5 py-1 rounded bg-amber-500 text-black font-bold text-[11px] hover:opacity-90 transition flex items-center gap-1"
-                >
-                  <span>Open Step 07</span>
-                  <ArrowRight className="h-3 w-3" strokeWidth={1.6} />
-                </button>
+                <p className="text-muted-foreground mt-1 text-xs leading-relaxed">
+                  {activeScenario.protectionOffOutcome}
+                </p>
               </div>
-            )}
 
-            {/* Live Narration Log Terminal */}
+              <div className="p-3.5 rounded-lg border border-emerald-500/25 bg-emerald-500/5">
+                <span className="font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5 text-xs">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" strokeWidth={1.6} /> Protection ON Outcome:
+                </span>
+                <p className="text-muted-foreground mt-1 text-xs leading-relaxed">
+                  {activeScenario.protectionOnOutcome}
+                </p>
+              </div>
+            </div>
+
+            {/* Live Security Enforcement Log Terminal */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between text-xs text-muted-foreground font-mono">
                 <span className="flex items-center gap-1.5">
-                  <Terminal className="h-3.5 w-3.5 text-primary" strokeWidth={1.6} /> Live Security Enforcement Log
+                  <Terminal className="h-3.5 w-3.5 text-primary" strokeWidth={1.6} />
+                  Live Security Enforcement Log
                 </span>
-                {executionResult && (
-                  <span className="text-[11px]">
-                    Latency: {executionResult.execution_time_ms}ms
+
+                <div className="flex items-center gap-2">
+                  {executionResult && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const text = executionResult.narrative.join('\n')
+                        navigator.clipboard?.writeText(text)
+                        setCopiedLog(true)
+                        toast.success('Enforcement log copied')
+                        setTimeout(() => setCopiedLog(false), 2000)
+                      }}
+                      className="px-2 py-0.5 rounded bg-secondary hover:bg-muted text-foreground text-[10px] flex items-center gap-1 transition"
+                    >
+                      {copiedLog ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                      <span>{copiedLog ? 'Copied' : 'Copy Log'}</span>
+                    </button>
+                  )}
+                  <span className="text-[10px]">
+                    {executionResult ? `${executionResult.execution_time_ms} ms` : 'Standby'}
                   </span>
-                )}
+                </div>
               </div>
 
-              <div className="bg-slate-950 rounded-lg p-3 font-mono text-xs border border-border text-slate-200 min-h-[150px] max-h-[200px] overflow-y-auto space-y-1">
+              <div className="bg-slate-950 rounded-lg p-3 font-mono text-xs border border-border text-slate-200 min-h-[150px] max-h-[190px] overflow-y-auto space-y-1">
                 {executionResult ? (
-                  executionResult.narrative.map((line: string, idx: number) => {
-                    const isError =
-                      line.includes('CRITICAL') ||
-                      line.includes('drained') ||
-                      line.includes('lost') ||
-                      line.includes('BREACH')
-                    const isSuccess =
-                      line.includes('saved') ||
-                      line.includes('blocked') ||
-                      line.includes('prevented') ||
-                      line.includes('Zero') ||
-                      line.includes('protected')
+                  executionResult.narrative
+                    .slice(0, visibleLinesCount)
+                    .map((line: string, idx: number) => {
+                      const isError =
+                        line.includes('CRITICAL') ||
+                        line.includes('drained') ||
+                        line.includes('lost') ||
+                        line.includes('BREACH')
+                      const isSuccess =
+                        line.includes('saved') ||
+                        line.includes('blocked') ||
+                        line.includes('prevented') ||
+                        line.includes('Zero') ||
+                        line.includes('protected')
+                      const isPolicy = line.includes('[POLICY]') || line.includes('[GATEWAY]')
 
-                    return (
-                      <div
-                        key={idx}
-                        className={cn(
-                          'leading-relaxed text-[11.5px]',
-                          isError
-                            ? 'text-rose-400 font-semibold'
-                            : isSuccess
-                            ? 'text-emerald-400 font-semibold'
-                            : 'text-slate-300'
-                        )}
-                      >
-                        <span className="text-slate-600 mr-2">[{idx + 1}]</span>
-                        {line}
-                      </div>
-                    )
-                  })
+                      return (
+                        <div
+                          key={idx}
+                          className={cn(
+                            'leading-relaxed text-[11.5px] animate-in fade-in slide-in-from-bottom-1 duration-150',
+                            isError
+                              ? 'text-rose-400 font-semibold'
+                              : isSuccess
+                              ? 'text-emerald-400 font-semibold'
+                              : isPolicy
+                              ? 'text-indigo-300'
+                              : 'text-slate-300'
+                          )}
+                        >
+                          <span className="text-slate-600 mr-2 select-none">[{idx + 1}]</span>
+                          {line}
+                        </div>
+                      )
+                    })
                 ) : (
                   <div className="text-slate-500 italic py-8 text-center text-xs">
-                    Select a scenario and click &ldquo;Run Scenario&rdquo; to view real-time enforcement logs...
+                    Select any of the 7 OWASP attack scenarios and click &ldquo;Run Scenario&rdquo; to stream real-time enforcement logs...
                   </div>
                 )}
               </div>
             </div>
           </div>
 
-          {/* Scenario Result Badge */}
-          {executionResult && (
-            <div className="mt-3 pt-3 border-t border-border flex items-center justify-between text-xs flex-wrap gap-2">
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-foreground">Verdict:</span>
-                <span
-                  className={cn(
-                    'px-2 py-0.5 rounded font-bold text-[11px]',
-                    executionResult.decision === 'ALLOW'
-                      ? 'bg-rose-500/10 text-rose-500 border border-rose-500/30'
-                      : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
-                  )}
-                >
-                  {executionResult.decision}
-                </span>
-              </div>
-
-              <div className="font-mono text-xs">
-                {executionResult.protection ? (
-                  <span className="text-emerald-600 dark:text-emerald-400 font-bold">
-                    Money Saved: {formatPaise(executionResult.amount_saved_paise)}
-                  </span>
-                ) : (
-                  <span className="text-rose-500 font-bold">
-                    Money Lost: {formatPaise(executionResult.simulated_money_lost_paise)}
-                  </span>
+          {/* Verdict Strip + Deep Link to Merkle Audit Ledger */}
+          <div className="mt-3 pt-3 border-t border-border flex items-center justify-between text-xs flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-foreground">Verdict:</span>
+              <span
+                className={cn(
+                  'px-2 py-0.5 rounded font-bold text-[11px]',
+                  !executionResult
+                    ? 'bg-secondary text-muted-foreground'
+                    : executionResult.decision === 'ALLOW'
+                    ? 'bg-rose-500/10 text-rose-500 border border-rose-500/30'
+                    : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
                 )}
-              </div>
+              >
+                {executionResult ? executionResult.decision : 'READY'}
+              </span>
+
+              {executionResult && (
+                <span className="font-mono text-xs ml-2">
+                  {executionResult.protection ? (
+                    <strong className="text-emerald-600 dark:text-emerald-400">
+                      Protected: {formatPaise(executionResult.amount_saved_paise)}
+                    </strong>
+                  ) : (
+                    <strong className="text-rose-500">
+                      Lost: {formatPaise(executionResult.simulated_money_lost_paise)}
+                    </strong>
+                  )}
+                </span>
+              )}
             </div>
-          )}
+
+            {onOpenLedger && (
+              <button
+                type="button"
+                onClick={onOpenLedger}
+                className="px-2.5 py-1 rounded bg-secondary hover:bg-secondary/80 text-foreground text-xs font-semibold flex items-center gap-1.5 transition shrink-0"
+              >
+                <span>Verify Merkle Forensics in Step 07</span>
+                <ArrowRight className="h-3.5 w-3.5" strokeWidth={1.6} />
+              </button>
+            )}
+          </div>
         </div>
       </div>
-
-      {onOpenLedger && (
-        <div className="rounded-xl border border-border bg-card p-4 flex items-center justify-between text-xs card-depth">
-          <div className="flex items-center gap-2">
-            <Lock className="h-4 w-4 text-primary shrink-0" strokeWidth={1.6} />
-            <span className="text-muted-foreground">
-              Verify cryptographic SHA-256 Merkle chain and witness signatures in the ledger:
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={onOpenLedger}
-            className="px-3 py-1.5 rounded-lg border border-border bg-secondary hover:bg-secondary/80 text-foreground font-semibold flex items-center gap-1.5 transition shrink-0"
-          >
-            <span>Open Merkle Audit Ledger (Step 07)</span>
-            <ArrowRight className="h-3.5 w-3.5" strokeWidth={1.6} />
-          </button>
-        </div>
-      )}
     </div>
   )
 }
+
