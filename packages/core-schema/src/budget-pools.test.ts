@@ -173,11 +173,19 @@ describe('BP-1: Canonical Category Budget Data Model & Contracts', () => {
       }).success
     ).toBe(false);
 
-    // weekly > monthly
+    // Optional limits: pool with only monthly and per_tx cap is valid
+    const optionalLimitsPool = {
+      ...baseValidPool,
+      weekly_limit_paise: undefined,
+      daily_limit_paise: undefined,
+    };
+    expect(CanonicalCategoryBudgetPoolSchema.safeParse(optionalLimitsPool).success).toBe(true);
+
+    // Optional limits: per_tx exceeding monthly when daily/weekly omitted is rejected
     expect(
       CanonicalCategoryBudgetPoolSchema.safeParse({
-        ...baseValidPool,
-        weekly_limit_paise: 6000000, // exceeds monthly 5000000
+        ...optionalLimitsPool,
+        per_transaction_limit_paise: 6000000, // exceeds monthly 5000000
       }).success
     ).toBe(false);
   });
@@ -373,9 +381,9 @@ describe('BP-1: Canonical Category Budget Data Model & Contracts', () => {
 
   // 16. Backward Compatibility with Legacy Autonomy Modes
   test('16. transforms legacy autonomy modes seamlessly and enforces Invariant I2', () => {
-    // Legacy transform tests
+    // Legacy transform tests (Review Item A: safe fail-closed migration for unrestricted)
     expect(AutonomyModeSchema.parse('ALWAYS_ASK')).toBe('ASK_BEFORE_EVERY_PAYMENT');
-    expect(AutonomyModeSchema.parse('PAY_WITHOUT_RESTRICTION')).toBe('AUTO_APPROVE_WITHIN_LIMITS');
+    expect(AutonomyModeSchema.parse('PAY_WITHOUT_RESTRICTION')).toBe('ASK_BEFORE_EVERY_PAYMENT');
     expect(AutonomyModeSchema.parse('AUTO_APPROVE_WITHIN_LIMITS')).toBe('AUTO_APPROVE_WITHIN_LIMITS');
     expect(AutonomyModeSchema.parse('ASK_BEFORE_EVERY_PAYMENT')).toBe('ASK_BEFORE_EVERY_PAYMENT');
     expect(AutonomyModeSchema.parse('MANUAL_ONLY')).toBe('MANUAL_ONLY');

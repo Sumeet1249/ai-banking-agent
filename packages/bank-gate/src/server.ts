@@ -23,6 +23,8 @@ import {
   SystemClock,
 } from '@agentguard/core-schema';
 import { BankGateStore } from './db/bank-gate-store';
+import { CategoryBudgetStore } from './db/category-budget-store';
+import { CategoryBudgetService } from './services/category-budget-service';
 import { PermitVerifierService } from './services/permit-verifier';
 import { TrustedKeyring } from './services/trusted-keyring';
 import { TransactionExecutorService } from './services/transaction-executor';
@@ -40,6 +42,8 @@ export class BankGateApp {
   public app: express.Express;
   public server?: Server;
   public store: BankGateStore;
+  public categoryStore: CategoryBudgetStore;
+  public categoryBudget: CategoryBudgetService;
   public permitVerifier: PermitVerifierService;
   public executor: TransactionExecutorService;
   public reconciliation: FinancialReconciliationService;
@@ -53,6 +57,13 @@ export class BankGateApp {
   ) {
     this.app = express();
     this.store = new BankGateStore(this.db, this.logger);
+    this.categoryStore = new CategoryBudgetStore(this.db, this.logger);
+    this.categoryBudget = new CategoryBudgetService(
+      this.categoryStore,
+      this.ledgerClient,
+      this.clock,
+      this.logger,
+    );
     const keyringOrPem = this.config.gatewayPublicKeyPem
       ? this.config.gatewayPublicKeyPem
       : new TrustedKeyring(this.logger, this.clock);
@@ -199,6 +210,145 @@ export class BankGateApp {
       const mandateId = req.params.mandateId;
       const success = this.store.evictMandate(mandateId);
       res.status(200).json({ mandate_id: mandateId, evicted: success, status: 'REVOKED' });
+    });
+
+    // ── Category Budget Engine Endpoints (Phase BP-2) ─────────────────────────
+
+    // 1. Create Category Pool
+    this.app.post('/api/v1/category-pools', (req: Request, res: Response) => {
+      try {
+        const tenantId = (req.headers['x-tenant-id'] as string) || req.body.tenant_id;
+        const customerRef = (req.headers['x-customer-ref'] as string) || req.body.customer_ref;
+        if (!tenantId || !customerRef) {
+          res.status(400).json({ error: 'Missing tenant_id or customer_ref header/body' });
+          return;
+        }
+        const pool = this.categoryBudget.createPool({
+          ...req.body,
+          tenant_id: tenantId,
+          customer_ref: customerRef,
+        });
+        res.status(201).json(pool);
+      } catch (err: any) {
+        res.status(400).json({ error: err.message });
+      }
+    });
+
+    // 2. List Category Pools
+    this.app.get('/api/v1/category-pools', (req: Request, res: Response) => {
+      const tenantId = (req.headers['x-tenant-id'] as string) || (req.query.tenant_id as string) || 'tenant-default';
+      const customerRef = (req.headers['x-customer-ref'] as string) || (req.query.customer_ref as string) || 'cust-101';
+      const pools = this.categoryBudget.listPools(tenantId, customerRef);
+      res.status(200).json({ pools });
+    });
+
+    // 3. Get Category Pool
+    this.app.get('/api/v1/category-pools/:poolId', (req: Request, res: Response) => {
+      const tenantId = (req.headers['x-tenant-id'] as string) || (req.query.tenant_id as string) || 'tenant-default';
+      const customerRef = (req.headers['x-customer-ref'] as string) || (req.query.customer_ref as string) || 'cust-101';
+      const pool = this.categoryBudget.getPool(tenantId, customerRef, req.params.poolId);
+      if (!pool) {
+        res.status(404).json({ error: 'Pool not found or tenant access denied' });
+        return;
+      }
+      res.status(200).json(pool);
+    });
+
+    // 4. Update Category Pool Limits
+    this.app.put('/api/v1/category-pools/:poolId', (req: Request, res: Response) => {
+      try {
+        const tenantId = (req.headers['x-tenant-id'] as string) || req.body.tenant_id;
+        const customerRef = (req.headers['x-customer-ref'] as string) || req.body.customer_ref;
+        if (!tenantId || !customerRef) {
+          res.status(400).json({ error: 'Missing tenant_id or customer_ref' });
+          return;
+        }
+        const updated = this.categoryBudget.updatePool({
+          ...req.body,
+          tenant_id: tenantId,
+          customer_ref: customerRef,
+          pool_id: req.params.poolId,
+        });
+        res.status(200).json(updated);
+      } catch (err: any) {
+        res.status(400).json({ error: err.message });
+      }
+    });
+
+    // 5. Suspend or Reactivate Category Pool
+    this.app.post('/api/v1/category-pools/:poolId/status', (req: Request, res: Response) => {
+      try {
+        const tenantId = (req.headers['x-tenant-id'] as string) || req.body.tenant_id;
+        const customerRef = (req.headers['x-customer-ref'] as string) || req.body.customer_ref;
+        const status = req.body.status;
+        if (!tenantId || !customerRef || !status) {
+          res.status(400).json({ error: 'Missing tenant_id, customer_ref, or status' });
+          return;
+        }
+        const updated = this.categoryBudget.setPoolStatus(tenantId, customerRef, req.params.poolId, status);
+        res.status(200).json(updated);
+      } catch (err: any) {
+        res.status(400).json({ error: err.message });
+      }
+    });
+
+    // 6. Authoritative Multi-Period Category Reservation
+    this.app.post('/api/v1/category-reservations', async (req: Request, res: Response) => {
+      try {
+        const tenantId = (req.headers['x-tenant-id'] as string) || req.body.tenant_id;
+        const customerRef = (req.headers['x-customer-ref'] as string) || req.body.customer_ref;
+        if (!tenantId || !customerRef) {
+          res.status(400).json({ decision: 'DENY', reason: 'MISSING_TENANT_OR_CUSTOMER' });
+          return;
+        }
+        const result = await this.categoryBudget.evaluateAndReserve({
+          ...req.body,
+          tenant_id: tenantId,
+          customer_ref: customerRef,
+        });
+        const statusCode = result.decision === 'ALLOW' ? 200 : result.decision === 'ASK' ? 200 : result.decision === 'DEFER' ? 503 : 403;
+        res.status(statusCode).json(result);
+      } catch (err: any) {
+        res.status(500).json({ decision: 'DEFER', reason: err.message, saga_state: 'REQUEST_RECEIVED' });
+      }
+    });
+
+    // 7. Settle Category Reservation
+    this.app.post('/api/v1/category-reservations/:reservationId/settle', async (req: Request, res: Response) => {
+      try {
+        const success = await this.categoryBudget.settlePayment(req.params.reservationId, req.body.transfer_id);
+        res.status(200).json({ reservation_id: req.params.reservationId, settled: success, status: 'SETTLED' });
+      } catch (err: any) {
+        res.status(400).json({ error: err.message });
+      }
+    });
+
+    // 8. Release Category Reservation
+    this.app.post('/api/v1/category-reservations/:reservationId/release', (req: Request, res: Response) => {
+      try {
+        const success = this.categoryBudget.releaseReservation(req.params.reservationId, req.body.reason || 'MANUAL_RELEASE');
+        res.status(200).json({ reservation_id: req.params.reservationId, released: success, status: 'RELEASED' });
+      } catch (err: any) {
+        res.status(400).json({ error: err.message });
+      }
+    });
+
+    // 9. Reverse Settlement
+    this.app.post('/api/v1/category-reservations/:reservationId/reverse', (req: Request, res: Response) => {
+      try {
+        const success = this.categoryBudget.reversePayment(req.params.reservationId, req.body.reversal_ref, req.body.reason || 'REVERSAL');
+        res.status(200).json({ reservation_id: req.params.reservationId, reversed: success, status: 'REVERSED' });
+      } catch (err: any) {
+        res.status(400).json({ error: err.message });
+      }
+    });
+
+    // 10. Audit Events
+    this.app.get('/api/v1/category-pools/:poolId/audit', (req: Request, res: Response) => {
+      const tenantId = (req.headers['x-tenant-id'] as string) || (req.query.tenant_id as string) || 'tenant-default';
+      const customerRef = (req.headers['x-customer-ref'] as string) || (req.query.customer_ref as string) || 'cust-101';
+      const events = this.categoryBudget.listAuditEvents(tenantId, customerRef);
+      res.status(200).json({ events });
     });
   }
 

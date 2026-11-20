@@ -55,7 +55,9 @@ export const AutonomyModeSchema = z.union([
   LegacyAutonomyModeSchema
 ]).transform((val): CanonicalAutonomyMode => {
   if (val === 'ALWAYS_ASK') return 'ASK_BEFORE_EVERY_PAYMENT';
-  if (val === 'PAY_WITHOUT_RESTRICTION') return 'AUTO_APPROVE_WITHIN_LIMITS';
+  // Reviewer Item A: Do not silently escalate legacy unrestricted to auto-approve;
+  // map to ASK_BEFORE_EVERY_PAYMENT until explicitly configured and confirmed.
+  if (val === 'PAY_WITHOUT_RESTRICTION') return 'ASK_BEFORE_EVERY_PAYMENT';
   return val;
 });
 export type AutonomyMode = z.infer<typeof CanonicalAutonomyModeSchema>;
@@ -106,8 +108,8 @@ export const CanonicalCategoryBudgetPoolSchema = z.object({
   category_name: z.string().min(1, 'category_name is required'),
   currency: z.literal('INR'),
   monthly_limit_paise: z.number().int().positive('monthly_limit_paise must be a positive integer'),
-  weekly_limit_paise: z.number().int().positive('weekly_limit_paise must be a positive integer'),
-  daily_limit_paise: z.number().int().positive('daily_limit_paise must be a positive integer'),
+  weekly_limit_paise: z.number().int().positive('weekly_limit_paise must be a positive integer').optional(),
+  daily_limit_paise: z.number().int().positive('daily_limit_paise must be a positive integer').optional(),
   per_transaction_limit_paise: z.number().int().positive('per_transaction_limit_paise must be a positive integer'),
   autonomy_mode: CanonicalAutonomyModeSchema,
   status: PoolStatusSchema.default('ACTIVE'),
@@ -127,25 +129,33 @@ export const CanonicalCategoryBudgetPoolSchema = z.object({
       path: ['valid_until']
     });
   }
-  if (data.per_transaction_limit_paise > data.daily_limit_paise) {
+  // Check hierarchy where configured
+  if (data.daily_limit_paise !== undefined && data.per_transaction_limit_paise > data.daily_limit_paise) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: 'per_transaction_limit_paise cannot exceed daily_limit_paise',
       path: ['per_transaction_limit_paise']
     });
   }
-  if (data.daily_limit_paise > data.weekly_limit_paise) {
+  if (data.daily_limit_paise !== undefined && data.weekly_limit_paise !== undefined && data.daily_limit_paise > data.weekly_limit_paise) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: 'daily_limit_paise cannot exceed weekly_limit_paise',
       path: ['daily_limit_paise']
     });
   }
-  if (data.weekly_limit_paise > data.monthly_limit_paise) {
+  if (data.weekly_limit_paise !== undefined && data.weekly_limit_paise > data.monthly_limit_paise) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: 'weekly_limit_paise cannot exceed monthly_limit_paise',
       path: ['weekly_limit_paise']
+    });
+  }
+  if (data.per_transaction_limit_paise > data.monthly_limit_paise) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'per_transaction_limit_paise cannot exceed monthly_limit_paise',
+      path: ['per_transaction_limit_paise']
     });
   }
 });
@@ -289,6 +299,15 @@ export const ClassificationMethodSchema = z.enum([
 ]);
 export type ClassificationMethod = z.infer<typeof ClassificationMethodSchema>;
 
+export const EvidenceTierSchema = z.enum([
+  'AUTHORITATIVE_RAIL',      // NPCI UPI, ISO 8583 settlement feed
+  'REGULATORY_REGISTRY',     // Official bank / RBI merchant registry
+  'CUSTOMER_OVERRIDE',       // Explicit customer-assigned rule
+  'DETERMINISTIC_HEURISTIC', // Exact prefix / known rule
+  'ADVISORY_HEURISTIC'       // LLM / prompt / unverified invoice string
+]);
+export type EvidenceTier = z.infer<typeof EvidenceTierSchema>;
+
 export const MerchantClassificationSchema = z.object({
   merchant_id: z.string().min(1, 'merchant_id is required'),
   merchant_name: z.string().min(1, 'merchant_name is required'),
@@ -297,15 +316,17 @@ export const MerchantClassificationSchema = z.object({
   verification_source: z.string().min(1, 'verification_source is required'),
   verification_reference: z.string().optional(),
   classification_method: ClassificationMethodSchema,
+  evidence_tier: EvidenceTierSchema.default('AUTHORITATIVE_RAIL'),
   confidence_basis: z.string().min(1, 'confidence_basis is required'),
   verified_at: z.number().int().nonnegative(),
   status: z.enum(['VERIFIED', 'PROVISIONAL', 'FLAGGED', 'BLOCKED']).default('VERIFIED'),
+  provenance_metadata: z.record(z.any()).optional(),
 }).superRefine((data, ctx) => {
-  // CRITICAL RULE: AI_ADVISORY must never independently possess authoritative confidence
-  if (data.classification_method === 'AI_ADVISORY' && data.status === 'VERIFIED') {
+  // CRITICAL RULE: AI_ADVISORY / ADVISORY_HEURISTIC must never independently possess authoritative confidence
+  if ((data.classification_method === 'AI_ADVISORY' || data.evidence_tier === 'ADVISORY_HEURISTIC') && data.status === 'VERIFIED') {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: 'AI_ADVISORY cannot be marked as VERIFIED without external payment rail or rule corroboration',
+      message: 'AI_ADVISORY and ADVISORY_HEURISTIC cannot be marked as VERIFIED without external payment rail or rule corroboration',
       path: ['status']
     });
   }
