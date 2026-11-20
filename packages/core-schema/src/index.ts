@@ -13,6 +13,7 @@ export * from './tenant-template';
 export * from './custom-ontology';
 export * from './sso';
 export * from './banking';
+export * from './workflow-orchestration';
 
 // Base schemas
 export const AgentIdSchema = z.string().uuid();

@@ -14,6 +14,7 @@ import {
   Compass, ArrowLeftCircle, ArrowRightCircle
 } from 'lucide-react'
 import { AttackLabView, SCENARIOS, AttackScenario } from '@/components/banking/attack-lab-view'
+import { AutonomousWorkflowStudio } from '@/components/banking/autonomous-workflow-studio'
 import { Security3DTopology } from '@/components/topology/security-3d-topology'
 import { PasskeyStepUpModal } from '@/components/banking/passkey-stepup-modal'
 import { MerkleChainVisualizer } from '@/components/banking/merkle-chain-visualizer'
@@ -25,8 +26,8 @@ import { cn } from '@/lib/utils'
 export default function BankingDashboardPage() {
   // Master Security States
   const [activeFeature, setActiveFeature] = useState<
-    'attack_lab' | 'topology' | 'mandates' | 'identity' | 'anomaly' | 'stepup' | 'ledger' | 'mvp_guide'
-  >('attack_lab')
+    'workflow_studio' | 'attack_lab' | 'topology' | 'mandates' | 'identity' | 'anomaly' | 'stepup' | 'ledger' | 'mvp_guide'
+  >('workflow_studio')
   const [protectionEnabled, setProtectionEnabled] = useState<boolean>(true)
   const [globalFreeze, setGlobalFreeze] = useState<boolean>(false)
   const [selectedScenario, setSelectedScenario] = useState<AttackScenario>(SCENARIOS[0])
@@ -72,8 +73,17 @@ export default function BankingDashboardPage() {
   // Sequential Feature Definitions for Left Sub-Panel
   const sequentialFeatures = [
     {
-      id: 'attack_lab',
+      id: 'workflow_studio',
       number: '01',
+      title: 'AI Workflow Studio',
+      subtitle: '8-Agent Autonomous Pipeline & Control',
+      icon: Sparkles,
+      badge: 'Autonomous',
+      badgeColor: 'bg-primary/10 text-primary border-primary/20',
+    },
+    {
+      id: 'attack_lab',
+      number: '02',
       title: 'Attack Lab & Simulator',
       subtitle: '7 OWASP agent scenarios (ON vs OFF)',
       icon: Crosshair,
@@ -82,7 +92,7 @@ export default function BankingDashboardPage() {
     },
     {
       id: 'topology',
-      number: '02',
+      number: '03',
       title: 'Visual Agent Topology',
       subtitle: 'Agent → Gateway → Bank Core flow',
       icon: Network,
@@ -461,7 +471,12 @@ export default function BankingDashboardPage() {
 
           {/* ── RIGHT-SIDE MAIN DISPLAY ──────────────────────────────────────────────── */}
           <div className="lg:col-span-8 xl:col-span-9 space-y-6">
-            {/* FEATURE 01: ATTACK LAB & SIMULATOR */}
+            {/* FEATURE 01: AUTONOMOUS AI WORKFLOW STUDIO */}
+            {activeFeature === 'workflow_studio' && (
+              <AutonomousWorkflowStudio />
+            )}
+
+            {/* FEATURE 02: ATTACK LAB & SIMULATOR */}
             {activeFeature === 'attack_lab' && (
               <AttackLabView
                 protectionEnabled={protectionEnabled}
