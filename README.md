@@ -96,5 +96,5 @@ Open [http://localhost:3000/banking](http://localhost:3000/banking) to access th
 
 ## Documentation & Pitch Resources
 
-- [docs/owasp-mapping.md](file:///s:/trail/AGENTGUARD-AI/docs/owasp-mapping.md) — Comprehensive mapping against OWASP Top 10 for Agentic Applications (2026).
-- [docs/PITCH-AND-DEMO-SCRIPT.md](file:///s:/trail/AGENTGUARD-AI/docs/PITCH-AND-DEMO-SCRIPT.md) — 4-minute presentation script and judge Q&A guide.
+- [docs/owasp-mapping.md](./docs/owasp-mapping.md) — Comprehensive mapping against OWASP Top 10 for Agentic Applications (2026).
+- [docs/PITCH-AND-DEMO-SCRIPT.md](./docs/PITCH-AND-DEMO-SCRIPT.md) — 4-minute presentation script and judge Q&A guide.

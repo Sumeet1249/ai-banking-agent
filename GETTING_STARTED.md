@@ -1,11 +1,10 @@
-# Getting Started with AEGIS
+# Getting Started with AgentShield
 
 ## Quick Start (Docker)
 
-```bash {"metadata":"[object Object]"}
-git clone https://github.com/Sumeet1249/trail.git && cd trail
+```bash
+git clone https://github.com/Sumeet1249/ai-banking-agent.git && cd ai-banking-agent
 docker compose up -d
-
 ```
 
 That's it. Open:
