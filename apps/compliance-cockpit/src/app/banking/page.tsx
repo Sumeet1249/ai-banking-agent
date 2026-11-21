@@ -121,6 +121,16 @@ const BANKING_MODULES = [
   },
 ]
 
+const SCENARIO_HINTS: Record<string, { shortTitle: string; icon: any }> = {
+  scenario_1_prompt_injection: { shortTitle: 'Prompt Injection', icon: Crosshair },
+  scenario_2_overreach: { shortTitle: 'Limit Overreach', icon: Zap },
+  scenario_3_stolen_token_replay: { shortTitle: 'Token Replay', icon: KeyRound },
+  scenario_4_structuring: { shortTitle: 'Smurfing Burst', icon: Activity },
+  scenario_5_compromised_agent: { shortTitle: 'Runaway Loop', icon: Flame },
+  scenario_6_post_revocation: { shortTitle: 'Post-Revocation', icon: Clock },
+  scenario_7_insider_tamper: { shortTitle: 'DB Tamper', icon: Database },
+}
+
 export default function BankingDashboardPage() {
   // Master Security States
   const [activeFeature, setActiveFeature] = useState<BankingModuleId>('attack_lab')
@@ -197,7 +207,8 @@ export default function BankingDashboardPage() {
   const nextFeature = currentIndex < BANKING_MODULES.length - 1 ? BANKING_MODULES[currentIndex + 1] : null
 
   // Handle firing a scenario against the visual topology
-  const handleFireRay = (scenario: AttackScenario) => {
+  const handleFireRay = (scenarioInput: any) => {
+    const scenario = SCENARIOS.find((s) => s.id === scenarioInput?.id) || scenarioInput
     setSelectedScenario(scenario)
     setAnimatingRay(true)
     setSimulationVerdict('idle')
@@ -210,12 +221,12 @@ export default function BankingDashboardPage() {
 
     const newEntries = [
       {
-        text: `[SIMULATION START] Firing Attack Vector: ${scenario.title}`,
+        text: `[SIMULATION START] Firing Attack Vector: ${scenario.title || scenario.shortTitle}`,
         time: nowTime,
         type: 'info' as const,
       },
       {
-        text: `[PAYLOAD] Amount: ${formatPaise(scenario.riskAmountPaise)} · Target: ${scenario.subtitle}`,
+        text: `[PAYLOAD] Amount: ${formatPaise(scenario.riskAmountPaise || 0)} · Target: ${scenario.subtitle || scenario.dmzLabel || 'Core Ledger'}`,
         time: nowTime,
         type: 'info' as const,
       },
@@ -253,11 +264,11 @@ export default function BankingDashboardPage() {
         setMetrics((prev) => ({
           ...prev,
           threatsBlocked: prev.threatsBlocked + 1,
-          fundsSavedPaise: prev.fundsSavedPaise + scenario.riskAmountPaise,
+          fundsSavedPaise: prev.fundsSavedPaise + (scenario.riskAmountPaise || 0),
         }))
         setTelemetryLogs((prev) => [
           {
-            text: `[INTERCEPTED] ${scenario.protectionOnOutcome}`,
+            text: `[INTERCEPTED] ${scenario.protectionOnOutcome || 'Deflected by AgentShield Gateway'}`,
             time: finishTime,
             type: 'blocked' as const,
           },
@@ -277,14 +288,14 @@ export default function BankingDashboardPage() {
             type: 'breach' as const,
           },
           {
-            text: `[CRITICAL LOSS] ${formatPaise(scenario.riskAmountPaise)} drained to unauthorized party.`,
+            text: `[CRITICAL LOSS] ${formatPaise(scenario.riskAmountPaise || 0)} drained to unauthorized party.`,
             time: finishTime,
             type: 'breach' as const,
           },
           ...prev,
         ])
       }
-    }, 1000)
+    }, 3200)
   }
 
   // Filtered telemetry logs for bottom live-wire dock
@@ -607,7 +618,10 @@ export default function BankingDashboardPage() {
           {activeFeature === 'attack_lab' && (
             <AttackLabView
               protectionEnabled={protectionEnabled}
-              onToggleProtection={(val) => setProtectionEnabled(val)}
+              onToggleProtection={(val) => {
+                setProtectionEnabled(val)
+                setSimulationVerdict('idle')
+              }}
               globalFreeze={globalFreeze}
               activeScenario={selectedScenario}
               animatingRay={animatingRay}
@@ -637,92 +651,20 @@ export default function BankingDashboardPage() {
                 </span>
               </div>
 
-              {/* Interactive 3D Security Topology WebGL Scene */}
-              <div className="rounded-xl border border-border overflow-hidden shadow-2xl relative">
-                <Security3DTopology
-                  isLiveBackend={true}
-                  protectionEnabled={protectionEnabled}
-                  activeScenario={selectedScenario}
-                  animatingRay={animatingRay}
-                  simulationVerdict={simulationVerdict}
-                />
-              </div>
-
-              {/* Synchronized Status & Topology Verdict Bar */}
-              <div className="flex items-center justify-between p-3.5 rounded-xl border border-border bg-card/90 backdrop-blur card-depth transition-colors">
-                <span className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider">
-                  Topology Interception Verdict
-                </span>
-
-                {simulationVerdict === 'idle' ? (
-                  <div
-                    className={cn(
-                      'px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 border shadow-sm transition-colors',
-                      globalFreeze
-                        ? 'bg-rose-500/10 text-rose-500 border-rose-500/30'
-                        : protectionEnabled
-                          ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
-                          : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'
-                    )}
-                  >
-                    {globalFreeze ? (
-                      <>
-                        <Flame className="h-4 w-4 text-rose-500" strokeWidth={1.8} />
-                        <span>EMERGENCY FROZEN · ALL 7 CHANNELS HALTED</span>
-                      </>
-                    ) : protectionEnabled ? (
-                      <>
-                        <ShieldCheck className="h-4 w-4 text-emerald-500" strokeWidth={1.8} />
-                        <span>SHIELD ARMED · PRE-EXECUTION MEDIATION READY (3.8ms)</span>
-                      </>
-                    ) : (
-                      <>
-                        <ShieldAlert className="h-4 w-4 text-amber-500" strokeWidth={1.8} />
-                        <span>BYPASS MODE · ZERO-TRUST DISARMED · RAW ACCESS</span>
-                      </>
-                    )}
-                  </div>
-                ) : simulationVerdict === 'blocked' ? (
-                  <div className="px-3.5 py-1.5 bg-emerald-500/15 border border-emerald-500/30 rounded-lg text-emerald-600 dark:text-emerald-400 text-xs font-bold flex items-center gap-2 shadow-sm animate-in fade-in duration-200">
-                    <ShieldCheck className="h-4 w-4 text-emerald-500" strokeWidth={1.8} />
-                    <span>DEFLECTED BY AGENTSHIELD GATEWAY — ZERO LOSS (PAISE PRESERVED)</span>
-                  </div>
-                ) : (
-                  <div className="px-3.5 py-1.5 bg-rose-500/15 border border-rose-500/30 rounded-lg text-rose-600 dark:text-rose-400 text-xs font-bold flex items-center gap-2 shadow-sm animate-in fade-in duration-200">
-                    <ShieldAlert className="h-4 w-4 text-rose-500" strokeWidth={1.8} />
-                    <span>CRITICAL: DIRECT BREACH — FUNDS DRAINED</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Quick Simulation Trigger Bar */}
-              <div className="rounded-xl border border-border bg-card p-4 card-depth">
-                <div className="text-xs font-semibold text-foreground mb-2 flex items-center justify-between">
-                  <span>⚡ Click an attack scenario to fire a live simulated ray through topology:</span>
-                  <span className="text-[10px] text-indigo-500 font-mono">0.8ms latency</span>
-                </div>
-
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2">
-                  {SCENARIOS.map((sc, idx) => (
-                    <button
-                      key={sc.id}
-                      type="button"
-                      onClick={() => handleFireRay(sc)}
-                      className={cn(
-                        'p-2 rounded-lg border text-left transition text-[11px] flex flex-col justify-between active:scale-95',
-                        selectedScenario.id === sc.id
-                          ? 'bg-secondary border-primary/50 text-foreground shadow-sm ring-1 ring-primary/20'
-                          : 'bg-card border-border text-muted-foreground hover:bg-secondary hover:text-foreground'
-                      )}
-                    >
-                      <div className="font-bold truncate text-[10px]">
-                        #{idx + 1} {sc.title.split('.')[1] || sc.title}
-                      </div>
-                      <div className="text-[9px] text-indigo-500 font-mono mt-1">{sc.owaspId}</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
+              {/* High-Fidelity 3D Sovereign Vault Silicon Diorama & Command Console */}
+              <Security3DTopology
+                isLiveBackend={true}
+                protectionEnabled={protectionEnabled}
+                onToggleProtection={(val) => {
+                  setProtectionEnabled(val)
+                  setSimulationVerdict('idle')
+                }}
+                globalFreeze={globalFreeze}
+                activeScenario={selectedScenario}
+                onSelectScenario={handleFireRay}
+                animatingRay={animatingRay}
+                simulationVerdict={simulationVerdict}
+              />
             </div>
           )}
 
