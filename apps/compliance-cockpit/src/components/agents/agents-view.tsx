@@ -25,12 +25,20 @@ import {
   Bot,
   ArrowRight,
   Lock,
+  Unlock,
   Clock,
   ChevronDown,
   LucideIcon,
   Activity,
   AlertTriangle,
+  Ban,
+  Database,
+  History,
+  Fingerprint,
+  ShieldAlert,
 } from 'lucide-react'
+import { AgentBlockHistoryView } from './agent-block-history-view'
+import { AgentPendingPaymentsView } from './agent-pending-payments-view'
 import { USE_MOCK, mockAgents, mockTraces } from '@/lib/mock-traces'
 import { ToolIcon } from '@/lib/tool-icons'
 import { fmtWhen } from '@/lib/time'
@@ -130,6 +138,7 @@ function fmtTs(s?: string): string {
 
 export function AgentsView() {
   const qc = useQueryClient()
+  const [activeTab, setActiveTab] = useState<'fleet' | 'blocks' | 'pending'>('fleet')
   const [filter, setFilter] = useState<Status | 'all'>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedPurpose, setSelectedPurpose] = useState<AgentPurposeId | 'all'>('all')
@@ -139,6 +148,74 @@ export function AgentsView() {
   const [secretCopied, setSecretCopied] = useState(false)
   const [selected, setSelected] = useState<Agent | null>(null)
   const [, setStoreTick] = useState(0)
+
+  // Bank Gate Audit DB Status
+  const { data: auditDbStatus } = useQuery<{
+    status: string
+    storage_mode: string
+    operational_db: { path: string; tables: string[] }
+    audit_db: {
+      path: string
+      tables: string[]
+      total_audit_events: number
+      total_blocks_recorded: number
+      total_merkle_batches: number
+      latest_sequence: number
+      latest_event_hash: string | null
+    }
+  }>({
+    queryKey: ['audit-db-status'],
+    queryFn: async () => {
+      const res = await fetch('/api/bank-gate/audit/db-status')
+      if (!res.ok) throw new Error('Failed to load audit db status')
+      return res.json()
+    },
+    refetchInterval: 8000,
+  })
+
+  // Bank Gate Block History (count for tab badge)
+  const { data: blockHistoryData } = useQuery<{ block_history: any[] }>({
+    queryKey: ['agents-block-history'],
+    queryFn: async () => {
+      const res = await fetch('/api/bank-gate/agents/block-history')
+      if (!res.ok) throw new Error('Failed to load block history')
+      return res.json()
+    },
+    refetchInterval: 5000,
+  })
+
+  // Bank Gate Pending Approvals (count for tab badge)
+  const { data: pendingApprovalsData } = useQuery<{ approvals: any[] }>({
+    queryKey: ['pending-approvals'],
+    queryFn: async () => {
+      const res = await fetch('/api/bank-gate/approvals/pending')
+      if (!res.ok) throw new Error('Failed to load pending approvals')
+      return res.json()
+    },
+    refetchInterval: 5000,
+  })
+
+  // Bank Gate Agent Allocations
+  const { data: allocationsData } = useQuery<{ allocations: any[] }>({
+    queryKey: ['agent-allocations'],
+    queryFn: async () => {
+      const res = await fetch('/api/bank-gate/agents/allocations')
+      if (!res.ok) throw new Error('Failed to load agent allocations')
+      return res.json()
+    },
+    refetchInterval: 6000,
+  })
+
+  const allocationsByAgent = useMemo(() => {
+    const map = new Map<string, any>()
+    for (const alloc of allocationsData?.allocations || []) {
+      map.set(String(alloc.agent_id).toLowerCase(), alloc)
+    }
+    return map
+  }, [allocationsData])
+
+  const blockCount = blockHistoryData?.block_history?.length ?? 0
+  const pendingCount = pendingApprovalsData?.approvals?.length ?? 0
 
   // Listen to in-memory mandate updates to sync UI immediately
   useEffect(() => {
@@ -300,6 +377,9 @@ export function AgentsView() {
         totalBlocked += act.blocked
       })
 
+      const finalBlocked = Math.max(totalBlocked, blockCount)
+      const finalHeld = Math.max(totalHeld, pendingCount)
+
       return {
         totalCount: all.length,
         activeCount: active.length,
@@ -307,11 +387,11 @@ export function AgentsView() {
         activeRatio: all.length > 0 ? (active.length / all.length) * 100 : 0,
         totalDailyLimit,
         totalMonthlyBudget,
-        totalInterceptions: totalHeld + totalBlocked,
-        totalHeld,
-        totalBlocked,
+        totalInterceptions: finalHeld + finalBlocked,
+        totalHeld: finalHeld,
+        totalBlocked: finalBlocked,
       }
-    }, [rawAgents, activity])
+    }, [rawAgents, activity, blockCount, pendingCount])
 
   // Lifecycle action handlers
   async function setStatus(agent: Agent, status: 'active' | 'suspended') {
@@ -390,6 +470,84 @@ return (
       }
     />
 
+    {/* ── TOP MULTI-VIEW SUBNAV & AUDIT DB STATUS STRIP ── */}
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-1.5 rounded-2xl border border-border bg-card shadow-xs">
+      <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pb-1 sm:pb-0">
+        <button
+          onClick={() => setActiveTab('fleet')}
+          className={cn(
+            'px-4 py-2 rounded-xl text-xs font-bold transition-all inline-flex items-center gap-2 shrink-0',
+            activeTab === 'fleet'
+              ? 'bg-primary text-primary-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground hover:bg-secondary/60'
+          )}
+        >
+          <Bot className="h-4 w-4" />
+          <span>Agent Fleet &amp; Limits</span>
+          <span className="text-[10.5px] font-mono px-1.5 py-0.2 rounded-full bg-background/20">
+            {rawAgents.length}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('blocks')}
+          className={cn(
+            'px-4 py-2 rounded-xl text-xs font-bold transition-all inline-flex items-center gap-2 shrink-0',
+            activeTab === 'blocks'
+              ? 'bg-rose-500 text-white shadow-sm'
+              : 'text-muted-foreground hover:text-foreground hover:bg-secondary/60'
+          )}
+        >
+          <Ban className="h-4 w-4" />
+          <span>Block History</span>
+          {blockCount > 0 && (
+            <span className="text-[10.5px] font-mono px-1.5 py-0.2 rounded-full bg-rose-950/40 text-rose-200 font-bold">
+              {blockCount}
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('pending')}
+          className={cn(
+            'px-4 py-2 rounded-xl text-xs font-bold transition-all inline-flex items-center gap-2 shrink-0',
+            activeTab === 'pending'
+              ? 'bg-amber-500 text-slate-950 shadow-sm'
+              : 'text-muted-foreground hover:text-foreground hover:bg-secondary/60'
+          )}
+        >
+          <Clock className="h-4 w-4" />
+          <span>Pending Payments</span>
+          {pendingCount > 0 && (
+            <span className="text-[10.5px] font-mono px-1.5 py-0.2 rounded-full bg-amber-950/40 text-amber-200 font-bold animate-pulse">
+              {pendingCount}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {/* Audit Database Status Pill */}
+      <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-secondary/40 border border-border text-[11px] font-mono shrink-0">
+        <span className="relative flex h-2 w-2">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+        </span>
+        <Database className="h-3.5 w-3.5 text-emerald-400" />
+        <span className="text-muted-foreground">Separate Audit DB:</span>
+        <span className="font-bold text-foreground">audit_ledger.db</span>
+        {auditDbStatus?.audit_db && (
+          <span className="text-emerald-400 font-semibold">
+            (Seq #{auditDbStatus.audit_db.latest_sequence})
+          </span>
+        )}
+      </div>
+    </div>
+
+    {activeTab === 'blocks' && <AgentBlockHistoryView />}
+    {activeTab === 'pending' && <AgentPendingPaymentsView />}
+
+    {activeTab === 'fleet' && (
+      <>
     {/* ── TOP 4-CARD FLEET TELEMETRY STRIP ── */}
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       {/* Card 1: Active Agents */}
@@ -639,6 +797,13 @@ return (
             const tools = act ? Array.from(act.tools).slice(0, 5) : []
             const label = friendlyAgent(a.id, a.name)
             const mandate = agentMandateStore.getMandate(a.id || a.name)
+            const alloc = allocationsByAgent.get(a.id.toLowerCase())
+            let blockedCats: string[] = []
+            let allowedCats: string[] = []
+            if (alloc) {
+              try { blockedCats = JSON.parse(alloc.blocked_categories || '[]') } catch {}
+              try { allowedCats = JSON.parse(alloc.allowed_categories || '[]') } catch {}
+            }
             const purpose = PURPOSE_CATALOG[mandate.purpose] || PURPOSE_CATALOG.general_ops
             const IconComp = PURPOSE_ICONS[purpose.iconKey] || Bot
             const riskPosture = computeMandateRiskPosture(mandate)
@@ -726,13 +891,23 @@ return (
                   <div className="space-y-1 min-w-0">
                     <div className="flex items-center justify-between text-xs">
                       <span className="font-mono font-bold text-foreground tabular-nums">
-                        {formatInr(mandate.dailyLimitInr)}
+                        {alloc?.daily_limit_paise ? formatPaise(alloc.daily_limit_paise) : formatInr(mandate.dailyLimitInr)}
                         <span className="text-[10px] text-muted-foreground font-normal">/day</span>
                       </span>
                       <span className="text-[10.5px] font-mono text-indigo-400 tabular-nums">
-                        {formatInr(mandate.maxMonthlyLimitInr)}/mo
+                        {alloc?.monthly_limit_paise ? formatPaise(alloc.monthly_limit_paise) : formatInr(mandate.maxMonthlyLimitInr)}/mo
                       </span>
                     </div>
+                    {alloc?.per_transaction_limit_paise ? (
+                      <div className="flex items-center justify-between text-[10px] text-muted-foreground font-mono">
+                        <span>Cap: {formatPaise(alloc.per_transaction_limit_paise)}/tx</span>
+                        {blockedCats.length > 0 && (
+                          <span className="text-rose-400 font-semibold truncate max-w-[100px]">
+                            🚫 {blockedCats.join(', ')}
+                          </span>
+                        )}
+                      </div>
+                    ) : null}
                     <div className="h-1 rounded-full bg-secondary overflow-hidden border border-border">
                       <div
                         className="h-full bg-emerald-500 transition-all duration-300"
@@ -783,6 +958,11 @@ return (
           const act = actOf(a)
           const label = friendlyAgent(a.id, a.name)
           const mandate = agentMandateStore.getMandate(a.id || a.name)
+          const alloc = allocationsByAgent.get(a.id.toLowerCase())
+          let blockedCats: string[] = []
+          if (alloc) {
+            try { blockedCats = JSON.parse(alloc.blocked_categories || '[]') } catch {}
+          }
           const purpose = PURPOSE_CATALOG[mandate.purpose] || PURPOSE_CATALOG.general_ops
           const IconComp = PURPOSE_ICONS[purpose.iconKey] || Bot
           const riskPosture = computeMandateRiskPosture(mandate)
@@ -819,21 +999,31 @@ return (
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-muted-foreground">Daily Allowance:</span>
                     <span className="font-mono font-bold text-foreground tabular-nums">
-                      {formatInr(mandate.dailyLimitInr)}
+                      {alloc?.daily_limit_paise ? formatPaise(alloc.daily_limit_paise) : formatInr(mandate.dailyLimitInr)}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">Step-Up Threshold:</span>
-                    <span className="font-mono font-bold text-amber-500 tabular-nums">
-                      {formatInr(mandate.stepUpThresholdInr)}
-                    </span>
-                  </div>
+                  {alloc?.per_transaction_limit_paise && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">Per-Tx Ceiling:</span>
+                      <span className="font-mono font-bold text-amber-500 tabular-nums">
+                        {formatPaise(alloc.per_transaction_limit_paise)}
+                      </span>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between text-xs pt-1 border-t border-border/50">
                     <span className="text-muted-foreground">Monthly Cap:</span>
                     <span className="font-mono font-bold text-indigo-500 tabular-nums">
-                      {formatInr(mandate.maxMonthlyLimitInr)}
+                      {alloc?.monthly_limit_paise ? formatPaise(alloc.monthly_limit_paise) : formatInr(mandate.maxMonthlyLimitInr)}
                     </span>
                   </div>
+                  {blockedCats.length > 0 && (
+                    <div className="flex items-center justify-between text-[11px] pt-1 border-t border-border/50 text-rose-400">
+                      <span className="text-muted-foreground">Blocked Categories:</span>
+                      <span className="font-mono font-bold">
+                        🚫 {blockedCats.join(', ')}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Beneficiary Payees */}
@@ -881,6 +1071,8 @@ return (
           )
         })}
       </div>
+    )}
+    </>
     )}
 
     {/* ── 3D REGISTER AGENT MODAL ── */}

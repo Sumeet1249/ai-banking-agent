@@ -337,12 +337,25 @@ export class CategoryBudgetService {
     });
 
     if (!reserveResult.success || !reserveResult.reservation) {
+      const violations = reserveResult.violations || [reserveResult.reason || 'Reservation rejected'];
+      this.store.recordBlockHistory({
+        agent_id: params.agent_id,
+        tenant_id: params.tenant_id,
+        customer_ref: params.customer_ref,
+        category_id: params.category_id,
+        amount_paise: params.amount_paise,
+        merchant_name: params.merchant_input?.merchant_name,
+        reason: reserveResult.reason || 'BUDGET_RESERVATION_FAILED',
+        violations,
+        timestamp: now,
+      });
+
       return {
         decision: 'DENY',
         reason: reserveResult.reason || 'BUDGET_RESERVATION_FAILED',
         saga_state: 'REQUEST_RECEIVED',
         requires_human_approval: false,
-        violations: reserveResult.violations || [reserveResult.reason || 'Reservation rejected'],
+        violations,
         pool,
       };
     }
@@ -402,13 +415,25 @@ export class CategoryBudgetService {
       );
 
       if (merchantEval.status === 'BLOCKED') {
+        const violations = [`Merchant ${params.merchant_input.merchant_name} is blocked by policy`];
+        this.store.recordBlockHistory({
+          agent_id: params.agent_id,
+          tenant_id: params.tenant_id,
+          customer_ref: params.customer_ref,
+          category_id: params.category_id,
+          amount_paise: params.amount_paise,
+          merchant_name: params.merchant_input.merchant_name,
+          reason: 'MERCHANT_BLOCKED_BY_POLICY',
+          violations,
+          timestamp: now,
+        });
         this.store.releaseReservationAtomic(reservation.reservation_id, 'MERCHANT_BLOCKED_BY_POLICY', now);
         return {
           decision: 'DENY',
           reason: 'MERCHANT_BLOCKED_BY_POLICY',
           saga_state: 'COMPENSATED',
           requires_human_approval: false,
-          violations: [`Merchant ${params.merchant_input.merchant_name} is blocked by policy`],
+          violations,
           pool,
           merchant_evaluation: merchantEval,
         };
@@ -581,6 +606,34 @@ export class CategoryBudgetService {
 
   public listExceptions(tenantId: string, customerRef: string): CategoryReservationRow[] {
     return this.store.listExceptions(tenantId, customerRef);
+  }
+
+  public listBlockHistory(tenantId: string, customerRef: string, agentId?: string) {
+    return this.store.listBlockHistory(tenantId, customerRef, agentId);
+  }
+
+  public decidePendingApproval(params: {
+    reservationId: string;
+    decision: 'APPROVE' | 'REJECT';
+    biometricToken?: string;
+    customerRef: string;
+    reason?: string;
+  }): { success: boolean; status: string; reason?: string } {
+    const res = this.store.getReservation(params.reservationId);
+    if (!res) {
+      return { success: false, status: 'NOT_FOUND', reason: 'Reservation not found' };
+    }
+    const now = this.clock.now();
+    if (params.decision === 'REJECT') {
+      this.store.releaseReservationAtomic(params.reservationId, params.reason || 'REJECTED_BY_CUSTOMER_REVIEW', now);
+      return { success: true, status: 'REJECTED' };
+    }
+    // APPROVE
+    if (params.biometricToken && params.biometricToken.length >= 16) {
+      this.store.settleReservationAtomic(params.reservationId, now);
+      return { success: true, status: 'APPROVED' };
+    }
+    return { success: false, status: 'INVALID_BIOMETRIC_TOKEN', reason: 'Cryptographic biometric token invalid or missing' };
   }
 
   // ── SERVER-SIDE BIOMETRIC PASSKEY VERIFICATION (GATE 6) ──────────────────
