@@ -20,18 +20,59 @@ Choose risk_level based on severity: CRITICAL for code execution/exfil, HIGH for
 
 export async function POST(request: NextRequest) {
   try {
-    const { description, provider, apiKey } = await request.json()
+    const body = await request.json()
+    const description = body?.description
+    let provider = body?.provider
+    let apiKey = body?.apiKey?.trim()
 
     if (!description?.trim()) {
       return NextResponse.json({ error: 'description is required' }, { status: 400 })
     }
-    if (!apiKey?.trim()) {
-      return NextResponse.json({ error: 'apiKey is required — configure it in Settings → AI Assistant' }, { status: 400 })
+
+    // Default to Gemini if env key is available, or fallback to OpenAI/Anthropic env keys
+    if (!apiKey) {
+      if (process.env.GEMINI_API_KEY) {
+        provider = 'gemini'
+        apiKey = process.env.GEMINI_API_KEY
+      } else if (process.env.OPENAI_API_KEY) {
+        provider = 'openai'
+        apiKey = process.env.OPENAI_API_KEY
+      } else if (process.env.ANTHROPIC_API_KEY) {
+        provider = 'anthropic'
+        apiKey = process.env.ANTHROPIC_API_KEY
+      }
     }
 
-    let policyJson: string
+    if (!apiKey) {
+      return NextResponse.json({ error: 'apiKey is required — configure GEMINI_API_KEY in .env or Settings → AI Assistant' }, { status: 400 })
+    }
 
-    if (provider === 'anthropic') {
+    let policyJson = ''
+
+    if (provider === 'gemini') {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: 'user',
+              parts: [{ text: `${SYSTEM_PROMPT}\n\nUser request: "${description}"\nGenerate valid JSON only:` }]
+            }
+          ],
+          generationConfig: {
+            temperature: 0.1,
+            responseMimeType: 'application/json'
+          }
+        })
+      })
+      if (!res.ok) {
+        const err = await res.text()
+        return NextResponse.json({ error: `Gemini API error: ${err}` }, { status: 502 })
+      }
+      const data = await res.json()
+      policyJson = data.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+    } else if (provider === 'anthropic') {
       const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {

@@ -79,7 +79,7 @@ export function SettingsView() {
   const [regenerating, setRegenerating] = useState(false)
 
   // AI Assistant
-  const [aiProvider, setAiProvider]     = useState<'openai' | 'anthropic'>('openai')
+  const [aiProvider, setAiProvider]     = useState<'gemini' | 'openai' | 'anthropic'>('gemini')
   const [aiKey, setAiKey]               = useState('')
   const [aiKeyVisible, setAiKeyVisible] = useState(false)
   const [aiSaved, setAiSaved]           = useState(false)
@@ -107,8 +107,8 @@ export function SettingsView() {
   useEffect(() => {
     const savedUrl      = localStorage.getItem('aegis:gateway_url')
     const savedKey      = localStorage.getItem('aegis:api_key')
-    const savedProvider = localStorage.getItem('aegis:ai_provider') as 'openai' | 'anthropic' | null
-    const savedAiKey    = localStorage.getItem('aegis:ai_key')
+    const savedProvider = localStorage.getItem('aegis:ai_provider') as 'gemini' | 'openai' | 'anthropic' | null
+    const savedAiKey    = localStorage.getItem('aegis:ai_key') || process.env.NEXT_PUBLIC_GEMINI_API_KEY
     const savedSens     = localStorage.getItem('agentshield:anomaly_sensitivity') as 'low' | 'medium' | 'high' | null
     const savedLimit    = localStorage.getItem('agentshield:quarantine_limit')
     const savedKill     = localStorage.getItem('agentshield:global_kill_switch')
@@ -756,10 +756,11 @@ export function SettingsView() {
                 <label className="text-xs font-semibold uppercase tracking-wide block mb-1.5" style={{ color: MUTED }}>Provider</label>
                 <select
                   value={aiProvider}
-                  onChange={e => setAiProvider(e.target.value as 'openai' | 'anthropic')}
+                  onChange={e => setAiProvider(e.target.value as 'gemini' | 'openai' | 'anthropic')}
                   className="w-full text-xs px-3 py-2 rounded-lg border bg-secondary text-foreground outline-none"
                   style={{ borderColor: BORDER }}
                 >
+                  <option value="gemini">Google Gemini (Gemini 1.5)</option>
                   <option value="openai">OpenAI (gpt-4o)</option>
                   <option value="anthropic">Anthropic (Claude 3.5)</option>
                 </select>
@@ -772,7 +773,7 @@ export function SettingsView() {
                       value={aiKey}
                       onChange={e => setAiKey(e.target.value)}
                       type={aiKeyVisible ? 'text' : 'password'}
-                      placeholder={aiProvider === 'anthropic' ? 'sk-ant-...' : 'sk-...'}
+                      placeholder={aiProvider === 'gemini' ? 'AQ.Ab8... or AIza...' : aiProvider === 'anthropic' ? 'sk-ant-...' : 'sk-...'}
                       style={{ ...inputStyle, width: '100%', paddingRight: '36px' }}
                     />
                     <button
