@@ -248,14 +248,14 @@ function handleLocalFallback(
       if (path === 'agents') {
         const res = serverAgentStore.createAgent(parsed)
         return NextResponse.json(
-          { ok: true, agent: res.agent, secret: res.secret, mandate: res.mandate },
+          { ok: true, agent: res.agent, secret: res.secret, apiKey: res.secret, mandate: res.mandate },
           { status: 201 }
         )
       }
       if (path.match(/^agents\/([^/]+)\/rotate-secret$/)) {
         const id = path.split('/')[1]
         const res = serverAgentStore.rotateSecret(id)
-        if (res) return NextResponse.json({ ok: true, secret: res.secret })
+        if (res) return NextResponse.json({ ok: true, secret: res.secret, apiKey: res.secret })
         return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
       }
       if (path === 'mandates' || path.startsWith('mandates/')) {

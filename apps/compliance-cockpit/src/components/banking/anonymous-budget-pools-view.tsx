@@ -764,42 +764,67 @@ export function AnonymousBudgetPoolsView() {
         }),
       })
 
-      if (res.status === 503) {
-        const requestedPaise = testSpendRupees * 100
-        const isAllowed =
-          requestedPaise <= poolToUse.per_transaction_limit_paise && poolToUse.status === 'ACTIVE'
-        const simResult = {
-          decision: isAllowed ? ('ALLOW' as const) : ('ASK' as const),
-          reason: isAllowed
-            ? 'Within per-transaction and daily limits (Local Simulation)'
-            : 'Requires Step-Up Human Approval (Local Simulation)',
-          reservation_id: 'res_local_' + Date.now().toString(36),
-          saga_state: isAllowed ? 'RESERVED_LOCAL' : 'PENDING_APPROVAL',
-          settled: false,
-        }
-        setTestSpendResult(simResult)
-        if (isAllowed) {
-          toast.success(`Spend Permitted! Reservation ID: ${simResult.reservation_id.slice(0, 8)}... (Local Simulation)`)
-        } else {
-          registerStepUpCheck(simResult.reservation_id, poolToUse, testSpendAgentId || 'agent-shopping-bot-01', requestedPaise, simResult.reason)
+      let data: any = null
+      if (res.ok) {
+        data = await res.json().catch(() => null)
+      }
+
+      if (data && data.decision) {
+        setTestSpendResult(data)
+        if (data.decision === 'ALLOW') {
+          toast.success(`Spend Permitted! Reservation ID: ${data.reservation_id?.slice(0, 8)}...`)
+        } else if (data.decision === 'ASK') {
+          registerStepUpCheck(data.reservation_id || 'res_' + Date.now().toString(36), poolToUse, testSpendAgentId || 'agent-shopping-bot-01', testSpendRupees * 100, data.reason)
           toast.info(`Human Step-Up (ASK) triggered: Real approval request reflected in Approvals tab!`)
+        } else {
+          toast.warning(`Spend Rejected (${data.decision}): ${data.reason || 'Limits exceeded'}`)
         }
+        fetchAllData()
         return
       }
 
-      const data = await res.json()
-      setTestSpendResult(data)
-      if (data.decision === 'ALLOW') {
-        toast.success(`Spend Permitted! Reservation ID: ${data.reservation_id?.slice(0, 8)}...`)
-      } else if (data.decision === 'ASK') {
-        registerStepUpCheck(data.reservation_id || 'res_' + Date.now().toString(36), poolToUse, testSpendAgentId || 'agent-shopping-bot-01', testSpendRupees * 100, data.reason)
-        toast.info(`Human Step-Up (ASK) triggered: Real approval request reflected in Approvals tab!`)
+      // Local Fallback simulation if backend returned non-OK or empty decision
+      const requestedPaise = testSpendRupees * 100
+      const isAllowed =
+        requestedPaise <= poolToUse.per_transaction_limit_paise && poolToUse.status === 'ACTIVE'
+      const simResult = {
+        decision: isAllowed ? ('ALLOW' as const) : ('ASK' as const),
+        reason: isAllowed
+          ? 'Within per-transaction and daily limits (Local Simulation)'
+          : `Spend of ₹${testSpendRupees.toLocaleString('en-IN')} exceeds per-transaction limit (₹${Math.round(poolToUse.per_transaction_limit_paise / 100).toLocaleString('en-IN')}) — Invariant I1 Step-Up required.`,
+        reservation_id: 'res_local_' + Date.now().toString(36),
+        saga_state: isAllowed ? 'RESERVED_LOCAL' : 'PENDING_APPROVAL',
+        settled: false,
+      }
+      setTestSpendResult(simResult)
+      if (isAllowed) {
+        toast.success(`Spend Permitted! Reservation ID: ${simResult.reservation_id.slice(0, 8)}... (Local Simulation)`)
       } else {
-        toast.warning(`Spend Rejected (${data.decision}): ${data.reason || 'Limits exceeded'}`)
+        registerStepUpCheck(simResult.reservation_id, poolToUse, testSpendAgentId || 'agent-shopping-bot-01', requestedPaise, simResult.reason)
+        toast.info(`Human Step-Up (ASK) triggered: Real approval request reflected in Approvals tab!`)
       }
       fetchAllData()
-    } catch (err: any) {
-      toast.error(err.message || 'Test spend evaluation failed')
+    } catch {
+      // Local fallback on network error
+      const requestedPaise = testSpendRupees * 100
+      const isAllowed =
+        requestedPaise <= poolToUse.per_transaction_limit_paise && poolToUse.status === 'ACTIVE'
+      const simResult = {
+        decision: isAllowed ? ('ALLOW' as const) : ('ASK' as const),
+        reason: isAllowed
+          ? 'Within per-transaction and daily limits (Local Simulation)'
+          : `Spend of ₹${testSpendRupees.toLocaleString('en-IN')} exceeds per-transaction limit (₹${Math.round(poolToUse.per_transaction_limit_paise / 100).toLocaleString('en-IN')}) — Invariant I1 Step-Up required.`,
+        reservation_id: 'res_local_' + Date.now().toString(36),
+        saga_state: isAllowed ? 'RESERVED_LOCAL' : 'PENDING_APPROVAL',
+        settled: false,
+      }
+      setTestSpendResult(simResult)
+      if (isAllowed) {
+        toast.success(`Spend Permitted! Reservation ID: ${simResult.reservation_id.slice(0, 8)}... (Local Simulation)`)
+      } else {
+        registerStepUpCheck(simResult.reservation_id, poolToUse, testSpendAgentId || 'agent-shopping-bot-01', requestedPaise, simResult.reason)
+        toast.info(`Human Step-Up (ASK) triggered: Real approval request reflected in Approvals tab!`)
+      }
     } finally {
       setTestingSpend(false)
     }

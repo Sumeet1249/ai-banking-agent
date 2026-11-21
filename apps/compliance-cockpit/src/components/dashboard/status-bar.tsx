@@ -8,12 +8,12 @@ import { readLicense, type LicenseState } from '@/components/settings/license-pa
 import { UsageMeter } from '@/components/dashboard/usage-meter'
 import { PlanTierBadge } from '@/components/billing/plan-tier-badge'
 
-const BORDER = 'hsl(var(--border))'
-const TEXT = 'hsl(var(--foreground))'
-const MUTED = 'hsl(var(--muted-foreground))'
-const BG = 'hsl(var(--background))'
-const OK = 'hsl(150 22% 38%)'   // moss, matches /welcome decision color
-const ALERT = 'hsl(0 50% 38%)'     // oxblood
+const BORDER  = 'hsl(var(--border))'
+const TEXT    = 'hsl(var(--foreground))'
+const MUTED   = 'hsl(var(--muted-foreground))'
+const BG      = 'hsl(var(--background))'
+const OK      = 'hsl(150 22% 38%)'   // moss, matches /welcome decision color
+const ALERT   = 'hsl(0 50% 38%)'     // oxblood
 const PENDING = 'hsl(36 60% 32%)'    // mustard
 
 interface Stats {
@@ -63,11 +63,11 @@ export function StatusBar() {
 
       if (!cancelled && !stats) {
         setStats({
-          totalTraces: mockTotalActions(),
+          totalTraces:   mockTotalActions(),
           pendingChecks: 5,
           violations24h: mockViolations().length,
-          activeAgents: mockAgents().filter(a => a.status === 'active').length,
-          tracesTrend: 12,
+          activeAgents:  mockAgents().filter(a => a.status === 'active').length,
+          tracesTrend:   12,
         })
         setReachable(true)
       }
@@ -134,8 +134,8 @@ export function StatusBar() {
   const isLive = reachable && stats !== null
   const blocked = effectiveStats.violations24h ?? 0
   const pending = effectiveStats.pendingChecks ?? 0
-  const traces = effectiveStats.totalTraces ?? 0
-  const agents = effectiveStats.activeAgents ?? 0
+  const traces  = effectiveStats.totalTraces ?? 0
+  const agents  = effectiveStats.activeAgents ?? 0
 
   return (
     <div

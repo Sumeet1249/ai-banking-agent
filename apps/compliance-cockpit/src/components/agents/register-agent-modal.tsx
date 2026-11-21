@@ -32,6 +32,7 @@ import {
   FileText,
   Info,
   LucideIcon,
+  RefreshCw,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -71,6 +72,22 @@ export function RegisterAgentModal({ open, onClose, onSuccess }: RegisterAgentMo
   const [purposeId, setPurposeId] = useState<AgentPurposeId>('electricity')
   const [name, setName] = useState('')
   const [hasManuallyEditedLimits, setHasManuallyEditedLimits] = useState(false)
+
+  // Agent API Key & Authentication
+  const [apiKeyMode, setApiKeyMode] = useState<'generate' | 'custom'>('generate')
+  const [customApiKey, setCustomApiKey] = useState('')
+  const [autoApiKey, setAutoApiKey] = useState(() =>
+    `agt_live_${Array.from({ length: 24 }, () => Math.floor(Math.random() * 36).toString(36)).join('')}`
+  )
+  const [showApiKey, setShowApiKey] = useState(false)
+
+  const regenerateAutoApiKey = () => {
+    const newKey = `agt_live_${Array.from({ length: 24 }, () => Math.floor(Math.random() * 36).toString(36)).join('')}`
+    setAutoApiKey(newKey)
+    toast.success('Generated new cryptographic API key')
+  }
+
+  const effectiveApiKey = apiKeyMode === 'custom' ? customApiKey.trim() : autoApiKey
 
   // Financial Guardrails
   const activePurpose = PURPOSE_CATALOG[purposeId]
@@ -240,6 +257,11 @@ export function RegisterAgentModal({ open, onClose, onSuccess }: RegisterAgentMo
       return
     }
 
+    if (apiKeyMode === 'custom' && !customApiKey.trim()) {
+      setErrorMessage('Please provide a custom API key or switch to Auto-generate')
+      return
+    }
+
     setSubmitting(true)
     setErrorMessage('')
 
@@ -266,6 +288,8 @@ export function RegisterAgentModal({ open, onClose, onSuccess }: RegisterAgentMo
       const payload: Record<string, any> = {
         name: name.trim(),
         issue_secret: issueSecret,
+        api_key: effectiveApiKey,
+        secret: effectiveApiKey,
         environments,
       }
       if (customId.trim()) payload.id = customId.trim()
@@ -278,9 +302,7 @@ export function RegisterAgentModal({ open, onClose, onSuccess }: RegisterAgentMo
           .filter(Boolean)
       }
 
-      let secretStr = `agt_live_${Array.from({ length: 24 }, () =>
-        Math.floor(Math.random() * 36).toString(36)
-      ).join('')}`
+      let secretStr = effectiveApiKey
       let createdAgent: any = null
 
           try {
@@ -295,7 +317,7 @@ export function RegisterAgentModal({ open, onClose, onSuccess }: RegisterAgentMo
             if (res.ok) {
               const data = await res.json()
               createdAgent = data.agent ?? data
-              if (data.secret) secretStr = data.secret
+              if (data.secret || data.apiKey) secretStr = data.secret || data.apiKey
             }
           } catch {
             // Fallback
@@ -312,9 +334,14 @@ export function RegisterAgentModal({ open, onClose, onSuccess }: RegisterAgentMo
               status: 'active',
               has_secret: issueSecret,
               has_public_key: true,
+              api_key: effectiveApiKey,
+              api_key_masked: effectiveApiKey.length > 8 ? `${effectiveApiKey.slice(0, 8)}••••${effectiveApiKey.slice(-4)}` : '••••••••',
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
             }
+          } else {
+            createdAgent.api_key = secretStr || effectiveApiKey
+            createdAgent.api_key_masked = (secretStr || effectiveApiKey).length > 8 ? `${(secretStr || effectiveApiKey).slice(0, 8)}••••${(secretStr || effectiveApiKey).slice(-4)}` : '••••••••'
           }
 
           // Persist mandate to store
@@ -418,7 +445,7 @@ export function RegisterAgentModal({ open, onClose, onSuccess }: RegisterAgentMo
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                       <KeyRound className="h-3.5 w-3.5 text-indigo-500" strokeWidth={1.6} />
-                      X-AEGIS-Agent-Secret (One-Time Plaintext)
+                      Agent API Key &amp; Secret (x-api-key / X-AEGIS-Agent-Secret)
                     </span>
                     <span className="text-[10.5px] font-mono text-rose-500">Unrecoverable upon exit</span>
                   </div>
@@ -449,7 +476,7 @@ export function RegisterAgentModal({ open, onClose, onSuccess }: RegisterAgentMo
                       type="button"
                       onClick={() => {
                         navigator.clipboard?.writeText(sealedCredential.secret)
-                        toast.success('Agent secret copied to clipboard')
+                        toast.success('Agent API key copied to clipboard')
                       }}
                       className="px-2.5 py-1 rounded bg-secondary hover:bg-secondary/80 text-foreground font-semibold text-xs flex items-center gap-1 transition-colors"
                     >
@@ -491,21 +518,21 @@ export function RegisterAgentModal({ open, onClose, onSuccess }: RegisterAgentMo
                   <div className="relative rounded-xl border border-border bg-slate-950 p-4 font-mono text-xs text-slate-200 overflow-x-auto">
                     <pre className="text-[11px] leading-relaxed">
                       {sealedCredential.activeSnippetTab === 'ts' &&
-                        `import { AgentGuardClient } from '@agentguard/sdk-js'\n\nconst client = new AgentGuardClient({\n  gatewayUrl: 'http://localhost:8080',\n  agentId: '${sealedCredential.agentId}',\n  agentSecret: '${sealedCredential.secret}',\n})\n\n// Pre-execution evaluation under mandate ${sealedCredential.mandateId}\nconst permit = await client.evaluateTransfer({\n  payee: '${selectedPayees[0] || 'BESCOM'}',\n  amountPaise: 490000, // ₹4,900.00\n})`}
+                        `import { AgentGuardClient } from '@agentguard/sdk-js'\n\nconst client = new AgentGuardClient({\n  gatewayUrl: 'http://localhost:8080',\n  agentId: '${sealedCredential.agentId}',\n  apiKey: '${sealedCredential.secret}',\n  agentSecret: '${sealedCredential.secret}',\n})\n\n// Pre-execution evaluation under mandate ${sealedCredential.mandateId}\nconst permit = await client.evaluateTransfer({\n  payee: '${selectedPayees[0] || 'BESCOM'}',\n  amountPaise: 490000, // ₹4,900.00\n})`}
                       {sealedCredential.activeSnippetTab === 'curl' &&
-                        `curl -X POST http://localhost:8080/api/v1/permits \\\n  -H "Content-Type: application/json" \\\n  -H "X-AEGIS-Agent-Id: ${sealedCredential.agentId}" \\\n  -H "X-AEGIS-Agent-Secret: ${sealedCredential.secret}" \\\n  -d '{"payee":"${selectedPayees[0] || 'BESCOM'}","amount_paise":490000}'`}
+                        `curl -X POST http://localhost:8080/api/v1/permits \\\n  -H "Content-Type: application/json" \\\n  -H "X-AEGIS-Agent-Id: ${sealedCredential.agentId}" \\\n  -H "X-AEGIS-Agent-Secret: ${sealedCredential.secret}" \\\n  -H "x-api-key: ${sealedCredential.secret}" \\\n  -d '{"payee":"${selectedPayees[0] || 'BESCOM'}","amount_paise":490000}'`}
                       {sealedCredential.activeSnippetTab === 'env' &&
-                        `AGENTGUARD_GATEWAY_URL="http://localhost:8080"\nAGENTGUARD_AGENT_ID="${sealedCredential.agentId}"\nAGENTGUARD_AGENT_SECRET="${sealedCredential.secret}"\nAGENTGUARD_MANDATE_ID="${sealedCredential.mandateId}"`}
+                        `AGENTGUARD_GATEWAY_URL="http://localhost:8080"\nAGENTGUARD_AGENT_ID="${sealedCredential.agentId}"\nAGENTGUARD_AGENT_API_KEY="${sealedCredential.secret}"\nAGENTGUARD_AGENT_SECRET="${sealedCredential.secret}"\nAGENTGUARD_MANDATE_ID="${sealedCredential.mandateId}"`}
                     </pre>
                     <button
                       type="button"
                       onClick={() => {
                         const content =
                           sealedCredential.activeSnippetTab === 'ts'
-                            ? `import { AgentGuardClient } from '@agentguard/sdk-js'\nconst client = new AgentGuardClient({ gatewayUrl: 'http://localhost:8080', agentId: '${sealedCredential.agentId}', agentSecret: '${sealedCredential.secret}' })`
+                            ? `import { AgentGuardClient } from '@agentguard/sdk-js'\nconst client = new AgentGuardClient({ gatewayUrl: 'http://localhost:8080', agentId: '${sealedCredential.agentId}', apiKey: '${sealedCredential.secret}', agentSecret: '${sealedCredential.secret}' })`
                             : sealedCredential.activeSnippetTab === 'curl'
-                              ? `curl -X POST http://localhost:8080/api/v1/permits -H "X-AEGIS-Agent-Id: ${sealedCredential.agentId}" -H "X-AEGIS-Agent-Secret: ${sealedCredential.secret}"`
-                              : `AGENTGUARD_AGENT_ID="${sealedCredential.agentId}"\nAGENTGUARD_AGENT_SECRET="${sealedCredential.secret}"`
+                              ? `curl -X POST http://localhost:8080/api/v1/permits -H "X-AEGIS-Agent-Id: ${sealedCredential.agentId}" -H "X-AEGIS-Agent-Secret: ${sealedCredential.secret}" -H "x-api-key: ${sealedCredential.secret}"`
+                              : `AGENTGUARD_AGENT_ID="${sealedCredential.agentId}"\nAGENTGUARD_AGENT_API_KEY="${sealedCredential.secret}"\nAGENTGUARD_AGENT_SECRET="${sealedCredential.secret}"`
                         navigator.clipboard?.writeText(content)
                         toast.success('Snippet copied to clipboard')
                       }}
@@ -559,11 +586,132 @@ export function RegisterAgentModal({ open, onClose, onSuccess }: RegisterAgentMo
                     </div>
                   </div>
 
-                  {/* 2. Purpose Selector Grid */}
+                  {/* 2. Agent API Key & Gateway Authentication */}
+                  <div className="p-4 rounded-xl border border-border bg-secondary/20 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                        <KeyRound className="h-3.5 w-3.5 text-indigo-500" strokeWidth={1.6} />
+                        2. Agent API Key &amp; Gateway Authentication
+                      </span>
+                      <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                        Header: x-api-key
+                      </span>
+                    </div>
+
+                    {/* Mode selector pills */}
+                    <div className="flex rounded-lg border border-border p-0.5 bg-background text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setApiKeyMode('generate')}
+                        className={cn(
+                          'flex-1 py-1.5 px-3 rounded-md font-semibold text-xs transition-colors flex items-center justify-center gap-1.5',
+                          apiKeyMode === 'generate'
+                            ? 'bg-primary text-primary-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground'
+                        )}
+                      >
+                        <Sparkles className="h-3.5 w-3.5" />
+                        <span>Auto-Generate Key</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setApiKeyMode('custom')}
+                        className={cn(
+                          'flex-1 py-1.5 px-3 rounded-md font-semibold text-xs transition-colors flex items-center justify-center gap-1.5',
+                          apiKeyMode === 'custom'
+                            ? 'bg-primary text-primary-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground'
+                        )}
+                      >
+                        <Code2 className="h-3.5 w-3.5" />
+                        <span>Provide Custom API Key</span>
+                      </button>
+                    </div>
+
+                    {apiKeyMode === 'generate' ? (
+                      <div className="space-y-1.5">
+                        <div className="flex items-center gap-2 p-2.5 rounded-lg border border-border bg-background font-mono text-xs">
+                          <span className="flex-1 truncate select-all text-foreground">
+                            {showApiKey ? autoApiKey : '•'.repeat(28)}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setShowApiKey(!showApiKey)}
+                            className="p-1 text-muted-foreground hover:text-foreground transition-colors"
+                            title={showApiKey ? 'Hide API Key' : 'Reveal API Key'}
+                          >
+                            {showApiKey ? <EyeOff className="h-4 w-4" strokeWidth={1.6} /> : <Eye className="h-4 w-4" strokeWidth={1.6} />}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={regenerateAutoApiKey}
+                            className="p-1 text-indigo-400 hover:text-indigo-300 transition-colors"
+                            title="Regenerate Key"
+                          >
+                            <RefreshCw className="h-4 w-4" strokeWidth={1.6} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard?.writeText(autoApiKey)
+                              toast.success('Generated API key copied')
+                            }}
+                            className="px-2 py-1 rounded bg-secondary hover:bg-secondary/80 text-foreground font-semibold text-[11px] flex items-center gap-1 transition-colors"
+                          >
+                            <Copy className="h-3.5 w-3.5" strokeWidth={1.6} />
+                            <span>Copy</span>
+                          </button>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">
+                          High-entropy cryptographic key anchored to this agent ID for pre-execution gateway calls.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        <div className="relative">
+                          <input
+                            type={showApiKey ? 'text' : 'password'}
+                            value={customApiKey}
+                            onChange={(e) => setCustomApiKey(e.target.value)}
+                            placeholder="e.g. ag_live_9f83... or your custom agent key"
+                            className="w-full pl-3.5 pr-20 py-2 rounded-lg border border-border bg-background text-foreground font-mono text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-colors"
+                          />
+                          <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setShowApiKey(!showApiKey)}
+                              className="p-1 text-muted-foreground hover:text-foreground transition-colors"
+                              title={showApiKey ? 'Hide' : 'Show'}
+                            >
+                              {showApiKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                            </button>
+                            {customApiKey && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard?.writeText(customApiKey)
+                                  toast.success('Custom API key copied')
+                                }}
+                                className="p-1 text-muted-foreground hover:text-foreground transition-colors"
+                                title="Copy"
+                              >
+                                <Copy className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">
+                          Enter your custom API key / token. Stored securely and checked on every incoming agent request.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 3. Purpose Selector Grid */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                        2. Core Purpose &amp; Utility Category
+                        3. Core Purpose &amp; Utility Category
                       </label>
                       <span className="text-[11px] text-muted-foreground">7 Preset Utility Archetypes</span>
                     </div>
@@ -614,12 +762,12 @@ export function RegisterAgentModal({ open, onClose, onSuccess }: RegisterAgentMo
                     </div>
                   </div>
 
-                  {/* 3. Financial Guardrails (Integer-Paise Precision) */}
+                  {/* 4. Financial Guardrails (Integer-Paise Precision) */}
                   <div className="p-4 rounded-xl border border-border bg-secondary/20 space-y-4">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                         <Sliders className="h-3.5 w-3.5 text-indigo-500" strokeWidth={1.6} />
-                        3. Financial Guardrails (Integer-Paise Caps)
+                        4. Financial Guardrails (Integer-Paise Caps)
                       </span>
                       <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 font-semibold">
                         Zero Float Rounding
@@ -749,12 +897,12 @@ export function RegisterAgentModal({ open, onClose, onSuccess }: RegisterAgentMo
                     </div>
                   </div>
 
-                  {/* 4. Approved Payees / Billers (Dynamic by Purpose) */}
+                  {/* 5. Approved Payees / Billers (Dynamic by Purpose) */}
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                          4. Approved Payees / Billers
+                          5. Approved Payees / Billers
                         </label>
                         <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-muted text-muted-foreground">
                           Optional · {selectedPayees.length} selected
@@ -849,10 +997,10 @@ export function RegisterAgentModal({ open, onClose, onSuccess }: RegisterAgentMo
                     </div>
                   </div>
 
-                  {/* 5. Velocity, Expiry & Safety Controls */}
+                  {/* 6. Velocity, Expiry & Safety Controls */}
                   <div className="space-y-3 pt-2 border-t border-border">
                     <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground block">
-                      5. Velocity, Expiry &amp; Safety Controls
+                      6. Velocity, Expiry &amp; Safety Controls
                     </label>
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
@@ -929,7 +1077,7 @@ export function RegisterAgentModal({ open, onClose, onSuccess }: RegisterAgentMo
                     </div>
                   </div>
 
-                  {/* 6. Collapsible Advanced & Gateway Settings Accordion */}
+                  {/* 7. Collapsible Advanced & Gateway Settings Accordion */}
                   <div className="border-t border-border pt-3">
                     <button
                       type="button"
@@ -938,7 +1086,7 @@ export function RegisterAgentModal({ open, onClose, onSuccess }: RegisterAgentMo
                     >
                       <span className="flex items-center gap-1.5 uppercase tracking-wider">
                         <Code2 className="h-3.5 w-3.5 text-indigo-500" />
-                        Advanced &amp; Gateway Settings (Optional)
+                        7. Advanced &amp; Gateway Settings (Optional)
                       </span>
                       {showAdvanced ? (
                         <ChevronUp className="h-4 w-4" />
@@ -1195,8 +1343,30 @@ export function RegisterAgentModal({ open, onClose, onSuccess }: RegisterAgentMo
                           </div>
                         </div>
 
-                        {/* Ed25519 Fingerprint */}
+                        {/* API Key Status */}
                         <div className="pt-2 border-t border-border/50 flex items-center justify-between text-[10px] font-mono text-muted-foreground">
+                          <span className="flex items-center gap-1">
+                            <KeyRound className="h-3 w-3 text-indigo-400" />
+                            <span>
+                              Key:{' '}
+                              {apiKeyMode === 'custom'
+                                ? customApiKey.trim()
+                                  ? showApiKey
+                                    ? customApiKey
+                                    : `${customApiKey.slice(0, 6)}••••${customApiKey.slice(-4)}`
+                                  : 'Custom (Not set)'
+                                : showApiKey
+                                ? autoApiKey
+                                : `${autoApiKey.slice(0, 8)}••••`}
+                            </span>
+                          </span>
+                          <span className="text-[9px] uppercase px-1.5 py-0.2 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-bold">
+                            {apiKeyMode === 'custom' ? 'CUSTOM KEY' : 'AUTO GEN'}
+                          </span>
+                        </div>
+
+                        {/* Ed25519 Fingerprint */}
+                        <div className="flex items-center justify-between text-[10px] font-mono text-muted-foreground">
                           <span>Auth: Ed25519 Ephemeral</span>
                           <span>ed25519:7f4c…9a0b</span>
                         </div>

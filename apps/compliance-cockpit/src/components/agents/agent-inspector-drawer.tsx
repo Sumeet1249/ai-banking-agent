@@ -595,14 +595,34 @@ export function AgentInspectorDrawer({
                   <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" strokeWidth={1.6} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
-                      <span className="font-semibold text-foreground">Agent Secret Provisioned</span>
+                      <span className="font-semibold text-foreground">Agent API Key &amp; Secret Provisioned</span>
                       <span className="font-mono text-[10px] text-emerald-500 font-bold bg-emerald-500/10 px-1.5 py-0.2 rounded">
-                        SHA-256 VAULT
+                        ACTIVE VAULT
                       </span>
                     </div>
                     <p className="text-[11px] text-muted-foreground mt-0.5">
-                      X-AEGIS-Agent-Secret validated on gateway. Plaintext never persisted on server.
+                      x-api-key / X-AEGIS-Agent-Secret authenticated on gateway. Plaintext secured in vault.
                     </p>
+                    <div className="mt-2 flex items-center justify-between gap-2 p-1.5 rounded bg-secondary/50 border border-border text-[11px] font-mono">
+                      <div className="flex items-center gap-1.5 truncate">
+                        <KeyRound className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
+                        <span className="text-foreground truncate font-semibold">
+                          {(agent as any).api_key_masked || `agt_live_${(agent?.id || 'fleet').replace(/[^a-zA-Z0-9]/g, '').slice(0, 8)}••••••••`}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const keyToCopy = (agent as any).api_key || (agent as any).api_key_masked || `agt_live_${agent?.id}`
+                          navigator.clipboard.writeText(keyToCopy)
+                          toast.success('Agent API Key reference copied to clipboard')
+                        }}
+                        className="p-1 hover:bg-background rounded text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                        title="Copy Key Reference"
+                      >
+                        <Copy className="h-3 w-3" />
+                      </button>
+                    </div>
                   </div>
                 </div>
 

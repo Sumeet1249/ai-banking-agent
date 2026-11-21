@@ -13,6 +13,8 @@ export interface ServerAgent {
   status: 'active' | 'suspended' | 'deprecated' | 'unregistered'
   has_secret: boolean
   has_public_key: boolean
+  api_key?: string
+  api_key_masked?: string
   created_at: string
   updated_at: string
   last_seen_at?: string
@@ -77,6 +79,9 @@ function initStore() {
 
   baseAgents.forEach((a) => {
     const idKey = a.id.toLowerCase()
+    const apiKey = a.secret || `agt_live_${a.id.replace(/[^a-z0-9]/gi, '')}_${Math.random().toString(36).slice(2, 8)}`
+    const maskedKey = apiKey.length > 8 ? `${apiKey.slice(0, 8)}••••${apiKey.slice(-4)}` : '••••••••'
+
     const serverAgent: ServerAgent = {
       id: a.id,
       org_id: 'org_acme',
@@ -88,13 +93,15 @@ function initStore() {
       status: a.status,
       has_secret: true,
       has_public_key: true,
+      api_key: apiKey,
+      api_key_masked: maskedKey,
       created_at: now,
       updated_at: now,
       last_seen_at: a.last_seen,
       last_seen: a.last_seen,
     }
     store.agents.set(idKey, serverAgent)
-    store.secrets.set(idKey, a.secret)
+    store.secrets.set(idKey, apiKey)
 
     // Seed realistic mandates matching agent IDs
     let purpose: AgentPurposeId = 'general_ops'
@@ -188,17 +195,20 @@ export const serverAgentStore = {
     return store.agents.get(id.toLowerCase())
   },
 
-  createAgent(payload: Partial<ServerAgent> & { mandate?: Partial<ServerMandate> }): {
+  createAgent(payload: Partial<ServerAgent> & { mandate?: Partial<ServerMandate>; api_key?: string; secret?: string }): {
     agent: ServerAgent
     secret: string
+    apiKey: string
     mandate: ServerMandate
   } {
     initStore()
     const id = (payload.id || `agent_${Date.now().toString(36)}`).toLowerCase()
     const now = new Date().toISOString()
-    const secret = `agt_live_${Array.from({ length: 24 }, () =>
-      Math.floor(Math.random() * 36).toString(36)
-    ).join('')}`
+    const secret = (payload.api_key || payload.secret || '').trim() ||
+      `agt_live_${Array.from({ length: 24 }, () =>
+        Math.floor(Math.random() * 36).toString(36)
+      ).join('')}`
+    const maskedKey = secret.length > 8 ? `${secret.slice(0, 8)}••••${secret.slice(-4)}` : '••••••••'
 
     const newAgent: ServerAgent = {
       id,
@@ -211,6 +221,8 @@ export const serverAgentStore = {
       status: 'active',
       has_secret: true,
       has_public_key: true,
+      api_key: secret,
+      api_key_masked: maskedKey,
       created_at: now,
       updated_at: now,
       last_seen_at: now,
@@ -249,7 +261,7 @@ export const serverAgentStore = {
       timestamp: now,
     })
 
-    return { agent: newAgent, secret, mandate }
+    return { agent: newAgent, secret, apiKey: secret, mandate }
   },
 
   updateAgent(id: string, patch: Partial<ServerAgent>): ServerAgent | undefined {
@@ -263,6 +275,11 @@ export const serverAgentStore = {
       ...patch,
       updated_at: new Date().toISOString(),
     }
+    if (patch.api_key) {
+      updated.api_key = patch.api_key
+      updated.api_key_masked = patch.api_key.length > 8 ? `${patch.api_key.slice(0, 8)}••••${patch.api_key.slice(-4)}` : '••••••••'
+      store.secrets.set(idKey, patch.api_key)
+    }
     store.agents.set(idKey, updated)
 
     notify({
@@ -275,7 +292,7 @@ export const serverAgentStore = {
     return updated
   },
 
-  rotateSecret(id: string): { secret: string } | undefined {
+  rotateSecret(id: string): { secret: string; apiKey: string } | undefined {
     initStore()
     const idKey = id.toLowerCase()
     const existing = store.agents.get(idKey)
@@ -287,6 +304,8 @@ export const serverAgentStore = {
     store.secrets.set(idKey, newSecret)
 
     existing.has_secret = true
+    existing.api_key = newSecret
+    existing.api_key_masked = `${newSecret.slice(0, 8)}••••${newSecret.slice(-4)}`
     existing.updated_at = new Date().toISOString()
     store.agents.set(idKey, existing)
 
@@ -296,7 +315,7 @@ export const serverAgentStore = {
       timestamp: existing.updated_at,
     })
 
-    return { secret: newSecret }
+    return { secret: newSecret, apiKey: newSecret }
   },
 
   deleteAgent(id: string): boolean {

@@ -28,9 +28,9 @@ export function hasTier(current?: Tier, required?: Tier): boolean {
 
 /** Human label for chips + upsell copy. */
 export const TIER_LABEL: Record<Tier, string> = {
-  free: 'Free Trial',
-  pro: 'Pro',
-  team: 'Team',
+  free:       'Free Trial',
+  pro:        'Pro',
+  team:       'Team',
   enterprise: 'Enterprise',
 }
 

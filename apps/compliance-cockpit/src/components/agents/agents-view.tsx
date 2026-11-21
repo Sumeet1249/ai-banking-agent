@@ -838,6 +838,11 @@ return (
                         <span className="text-[10.5px] truncate text-indigo-400 font-medium">
                           {purpose.label}
                         </span>
+                        <span>•</span>
+                        <span className="font-mono text-[10px] text-muted-foreground flex items-center gap-0.5 bg-secondary/60 px-1.5 py-0.5 rounded border border-border/50">
+                          <KeyRound className="h-2.5 w-2.5 text-indigo-400 shrink-0" />
+                          <span>{(a as any).api_key_masked || `agt_live_${a.id.replace(/[^a-zA-Z0-9]/g, '').slice(0, 6)}••••`}</span>
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -1052,6 +1057,29 @@ return (
                       </span>
                     )}
                   </div>
+                </div>
+
+                {/* API Key Credential Reference */}
+                <div className="flex items-center justify-between text-[11px] font-mono p-2 rounded-lg bg-secondary/40 border border-border/60">
+                  <span className="flex items-center gap-1.5 text-muted-foreground truncate">
+                    <KeyRound className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
+                    <span className="truncate text-foreground font-semibold">
+                      {(a as any).api_key_masked || `agt_live_${a.id.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8)}••••••••`}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      const keyToCopy = (a as any).api_key || (a as any).api_key_masked || `agt_live_${a.id}`
+                      navigator.clipboard.writeText(keyToCopy)
+                      toast.success(`Copied API key reference for ${label}`)
+                    }}
+                    className="p-1 hover:bg-background rounded text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                    title="Copy API key reference"
+                  >
+                    <Copy className="h-3 w-3" />
+                  </button>
                 </div>
 
                 {/* Telemetry Strip & Quick Arrow */}
