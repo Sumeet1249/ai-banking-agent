@@ -5,6 +5,8 @@
  * Connects to Ledger Adapter on Port 4001 or uses FakeLedgerClient for in-memory testing.
  */
 
+import { createHash } from 'node:crypto';
+
 export interface PendingTransferResult {
   transfer_id: string; // 128-bit BigInt string representation
   status: 'PENDING' | 'REJECTED';
@@ -56,6 +58,10 @@ export class FakeLedgerClient implements ILedgerClient {
     this.balances.set('ACC_101', { liquid: 10000000, reserved: 0 });
   }
 
+  public setBalance(accountRef: string, liquid: number, reserved: number = 0): void {
+    this.balances.set(accountRef, { liquid, reserved });
+  }
+
   public async getAccountBalance(accountRef: string): Promise<LedgerBalance | null> {
     const bal = this.balances.get(accountRef);
     if (!bal) return null;
@@ -72,17 +78,31 @@ export class FakeLedgerClient implements ILedgerClient {
     amountPaise: number;
     ttlSeconds?: number;
   }): Promise<PendingTransferResult> {
-    const bal = this.balances.get(params.accountRef);
+    let bal = this.balances.get(params.accountRef);
     if (!bal) {
-      return { transfer_id: '', status: 'REJECTED', reason: 'ACCOUNT_NOT_FOUND', expires_at: 0 };
+      // Auto-provision test account for FakeLedgerClient with ₹1,00,000
+      bal = { liquid: 10000000, reserved: 0 };
+      this.balances.set(params.accountRef, bal);
     }
 
     if (bal.liquid < params.amountPaise) {
       return { transfer_id: '', status: 'REJECTED', reason: 'INSUFFICIENT_FUNDS', expires_at: 0 };
     }
 
-    // Convert UUIDv4 to BigInt transferId (Decision D15)
-    const transferId = BigInt('0x' + params.requestId.replace(/-/g, '')).toString();
+    // Convert UUIDv4 or arbitrary requestId to BigInt transferId (Decision D15)
+    let transferId: string;
+    try {
+      const clean = params.requestId.replace(/[^0-9a-fA-F]/g, '');
+      if (clean.length >= 8) {
+        transferId = BigInt('0x' + clean.slice(0, 32)).toString();
+      } else {
+        const hash = createHash('sha256').update(params.requestId).digest('hex');
+        transferId = BigInt('0x' + hash.slice(0, 32)).toString();
+      }
+    } catch {
+      transferId = Date.now().toString();
+    }
+
     const expiresAt = Date.now() + (params.ttlSeconds ?? 120) * 1000;
 
     // Atomically hold liquid funds into reserved

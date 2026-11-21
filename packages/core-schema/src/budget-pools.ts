@@ -342,9 +342,12 @@ export const AgentBudgetAllocationSchema = z.object({
   tenant_id: z.string().min(1, 'tenant_id is required'),
   customer_ref: z.string().min(1, 'customer_ref is required'),
   agent_limit_paise: z.number().int().positive('agent_limit_paise must be positive'),
+  monthly_limit_paise: z.number().int().positive('monthly_limit_paise must be positive').optional(),
+  weekly_limit_paise: z.number().int().positive('weekly_limit_paise must be positive').optional(),
   daily_limit_paise: z.number().int().positive('daily_limit_paise must be positive'),
   per_transaction_limit_paise: z.number().int().positive('per_transaction_limit_paise must be positive'),
   allowed_categories: z.array(SpendingCategorySchema).min(1, 'At least one allowed category is required'),
+  blocked_categories: z.array(SpendingCategorySchema).default([]),
   status: z.enum(['ACTIVE', 'SUSPENDED', 'REVOKED']).default('ACTIVE'),
   valid_from: z.number().int().nonnegative(),
   valid_until: z.number().int().positive(),
@@ -369,6 +372,15 @@ export const AgentBudgetAllocationSchema = z.object({
       code: z.ZodIssueCode.custom,
       message: 'agent daily_limit_paise cannot exceed total agent_limit_paise',
       path: ['daily_limit_paise']
+    });
+  }
+  // Conflict check: an allowed category cannot also be in blocked_categories
+  const overlap = data.allowed_categories.filter(c => data.blocked_categories.includes(c));
+  if (overlap.length > 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `Categories cannot be simultaneously allowed and blocked: ${overlap.join(', ')}`,
+      path: ['blocked_categories']
     });
   }
 });
@@ -408,3 +420,110 @@ export const CategorySpendingDecisionSchema = z.object({
   }
 });
 export type CategorySpendingDecision = z.infer<typeof CategorySpendingDecisionSchema>;
+
+// ── BP-3.2: EXTENDED MERCHANT INTELLIGENCE CONTRACTS ────────────────
+
+export const MerchantRegistryEntrySchema = z.object({
+  merchant_id: z.string().min(1),
+  merchant_name: z.string().min(1),
+  legal_name: z.string().optional(),
+  brand_id: z.string().optional(),
+  location_id: z.string().optional(),
+  primary_mcc: z.string().regex(/^\d{4}$/, 'mcc must be exactly 4 digits'),
+  secondary_mccs: z.array(z.string().regex(/^\d{4}$/)).default([]),
+  category_id: SpendingCategorySchema,
+  allowed_categories: z.array(SpendingCategorySchema).min(1),
+  evidence_tier: EvidenceTierSchema,
+  verification_source: z.string().min(1),
+  status: z.enum(['VERIFIED', 'PROVISIONAL', 'FLAGGED', 'BLOCKED']).default('VERIFIED'),
+  updated_at: z.number().int().nonnegative(),
+});
+export type MerchantRegistryEntry = z.infer<typeof MerchantRegistryEntrySchema>;
+
+export const MerchantEvaluationInputSchema = z.object({
+  merchant_id: z.string().min(1),
+  merchant_name: z.string().min(1),
+  claimed_mcc: z.string().regex(/^\d{4}$/).optional(),
+  payment_rail_mcc: z.string().regex(/^\d{4}$/).optional(),
+  claimed_category: SpendingCategorySchema.optional(),
+  ai_inferred_category: SpendingCategorySchema.optional(),
+  ai_confidence: z.number().min(0).max(1).optional(),
+});
+export type MerchantEvaluationInput = z.infer<typeof MerchantEvaluationInputSchema>;
+
+export const MerchantEvaluationResultSchema = z.object({
+  is_valid: z.boolean(),
+  resolved_category: SpendingCategorySchema,
+  resolved_mcc: z.string().regex(/^\d{4}$/),
+  evidence_tier: EvidenceTierSchema,
+  is_mismatch_detected: z.boolean(),
+  is_ai_advisory_only: z.boolean(),
+  status: z.enum(['VERIFIED', 'PROVISIONAL', 'FLAGGED', 'BLOCKED']),
+  confidence_basis: z.string(),
+  violations: z.array(z.string()).default([]),
+});
+export type MerchantEvaluationResult = z.infer<typeof MerchantEvaluationResultSchema>;
+
+// ── BP-3.5: MERKLE TREE AUDIT & VERIFICATION CONTRACTS ──────────────
+
+export const MerkleAlgorithmVersionSchema = z.enum([
+  'AGENTGUARD_MERKLE_V1',
+  'RFC6962_MTH_V1',
+  'MERKLE_RFC6962_SHA256_V1', // backward compatibility alias
+]);
+export type MerkleAlgorithmVersion = z.infer<typeof MerkleAlgorithmVersionSchema>;
+
+export const MerkleAuditBatchSchema = z.object({
+  batch_id: z.string().min(1),
+  merkle_root: z.string().regex(/^[a-f0-9]{64}$/i, 'merkle_root must be 64-char hex SHA-256'),
+  start_sequence: z.number().int().positive(),
+  end_sequence: z.number().int().positive(),
+  leaf_count: z.number().int().positive(),
+  algorithm_version: MerkleAlgorithmVersionSchema.default('AGENTGUARD_MERKLE_V1'),
+  witness_checkpoint_id: z.string().optional(),
+  witness_signature: z.string().optional(),
+  witness_epoch: z.number().int().positive().optional(),
+  created_at: z.number().int().nonnegative(),
+}).superRefine((data, ctx) => {
+  if (data.end_sequence < data.start_sequence) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'end_sequence must be greater than or equal to start_sequence',
+      path: ['end_sequence']
+    });
+  }
+});
+export type MerkleAuditBatch = z.infer<typeof MerkleAuditBatchSchema>;
+
+export const MerkleInclusionProofSchema = z.object({
+  batch_id: z.string().min(1),
+  event_id: z.string().min(1),
+  sequence_number: z.number().int().positive(),
+  leaf_index: z.number().int().nonnegative(),
+  leaf_hash: z.string().regex(/^[a-f0-9]{64}$/i),
+  audit_path: z.array(z.string().regex(/^[a-f0-9]{64}$/i)),
+  merkle_root: z.string().regex(/^[a-f0-9]{64}$/i),
+});
+export type MerkleInclusionProof = z.infer<typeof MerkleInclusionProofSchema>;
+
+export const MerkleVerificationRequestSchema = z.object({
+  batch_id: z.string().min(1),
+  event_id: z.string().min(1),
+  leaf_hash: z.string().regex(/^[a-f0-9]{64}$/i),
+  merkle_proof: z.array(z.string().regex(/^[a-f0-9]{64}$/i)),
+  merkle_root: z.string().regex(/^[a-f0-9]{64}$/i),
+  leaf_index: z.number().int().nonnegative().optional(),
+  event_payload: z.string().optional(),
+});
+export type MerkleVerificationRequest = z.infer<typeof MerkleVerificationRequestSchema>;
+
+export const MerkleVerificationResponseSchema = z.object({
+  valid: z.boolean(),
+  event_included: z.boolean(),
+  root_anchored: z.boolean(),
+  verification_status: z.enum(['VERIFIED', 'TAMPER_DETECTED', 'ROOT_MISMATCH', 'INVALID_PROOF']),
+  details: z.string(),
+  witness_checkpoint_id: z.string().optional(),
+  witness_epoch: z.number().int().optional(),
+});
+export type MerkleVerificationResponse = z.infer<typeof MerkleVerificationResponseSchema>;

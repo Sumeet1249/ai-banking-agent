@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { PaymentRequestSchema } from '@agentguard/core-schema';
 import { BankingAgentIdentityService, AuthenticatedAgentRequest } from '../services/banking-agent-identity';
 import { PermitEngineService } from '../services/permit-engine';
+import { BankGateClient } from '../services/bank-gate-client';
 
 export class AgentBankingAPI {
   public router: Router;
@@ -21,6 +22,7 @@ export class AgentBankingAPI {
     private agentIdentity: BankingAgentIdentityService,
     private permitEngine: PermitEngineService,
     private logger?: Logger,
+    private bankGateClient: BankGateClient = new BankGateClient(),
   ) {
     this.router = Router();
     this.registerRoutes();
@@ -40,7 +42,7 @@ export class AgentBankingAPI {
       });
     });
 
-    this.router.post('/evaluate', (req: AuthenticatedAgentRequest, res: Response) => {
+    this.router.post('/evaluate', async (req: AuthenticatedAgentRequest, res: Response) => {
       const parsed = PaymentRequestSchema.safeParse(req.body);
       if (!parsed.success) {
         res.status(400).json({
@@ -53,6 +55,55 @@ export class AgentBankingAPI {
 
       const payment = parsed.data;
       const delegationRef = (req.headers['x-delegation-ref'] as string) || (req.body?.delegation_ref as string | undefined);
+
+      // Phase BP-3.3: Authoritative Category Budget Coordination with Bank Gate (:4000)
+      if (req.body.pool_id || req.body.category_id) {
+        const poolId = req.body.pool_id || `pool_${payment.purpose?.toLowerCase() || 'general'}`;
+        const categoryId = req.body.category_id || 'SHOPPING';
+
+        const categoryResult = await this.bankGateClient.evaluateCategoryReservation({
+          tenant_id: (req.headers['x-tenant-id'] as string) || 'tenant-default',
+          customer_ref: payment.customer_ref,
+          pool_id: poolId,
+          agent_id: payment.agent_id,
+          workflow_id: payment.request_id,
+          request_id: payment.request_id,
+          idempotency_key: `idem_${payment.request_id}`,
+          transaction_digest: payment.request_id.repeat(4).slice(0, 64),
+          category_id: categoryId,
+          amount_paise: payment.amount_paise,
+          merchant_input: req.body.merchant_input,
+        });
+
+        if (categoryResult.decision === 'DENY') {
+          res.status(403).json({
+            decision: 'DENY',
+            reason: categoryResult.reason,
+            violations: categoryResult.violations,
+          });
+          return;
+        }
+
+        if (categoryResult.decision === 'DEFER') {
+          res.status(503).json({
+            decision: 'DEFER',
+            reason: categoryResult.reason,
+            violations: categoryResult.violations,
+          });
+          return;
+        }
+
+        if (categoryResult.decision === 'ASK') {
+          res.status(202).json({
+            decision: 'ASK',
+            reason: categoryResult.reason,
+            reservation_id: categoryResult.reservation_id,
+            requires_human_approval: true,
+            violations: categoryResult.violations,
+          });
+          return;
+        }
+      }
 
       const evaluation = this.permitEngine.evaluateAndMintPermit({
         agent_id: payment.agent_id,

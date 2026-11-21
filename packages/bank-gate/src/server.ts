@@ -25,6 +25,8 @@ import {
 import { BankGateStore } from './db/bank-gate-store';
 import { CategoryBudgetStore } from './db/category-budget-store';
 import { CategoryBudgetService } from './services/category-budget-service';
+import { MerchantIntelligenceService } from './services/merchant-intelligence-service';
+import { MerkleAuditService } from './services/merkle-audit-service';
 import { PermitVerifierService } from './services/permit-verifier';
 import { TrustedKeyring } from './services/trusted-keyring';
 import { TransactionExecutorService } from './services/transaction-executor';
@@ -44,6 +46,8 @@ export class BankGateApp {
   public store: BankGateStore;
   public categoryStore: CategoryBudgetStore;
   public categoryBudget: CategoryBudgetService;
+  public merchantService: MerchantIntelligenceService;
+  public merkleAudit: MerkleAuditService;
   public permitVerifier: PermitVerifierService;
   public executor: TransactionExecutorService;
   public reconciliation: FinancialReconciliationService;
@@ -58,9 +62,12 @@ export class BankGateApp {
     this.app = express();
     this.store = new BankGateStore(this.db, this.logger);
     this.categoryStore = new CategoryBudgetStore(this.db, this.logger);
+    this.merchantService = new MerchantIntelligenceService(this.db, this.logger);
+    this.merkleAudit = new MerkleAuditService(this.db, process.env.WITNESS_URL || 'http://localhost:5000', this.logger);
     this.categoryBudget = new CategoryBudgetService(
       this.categoryStore,
       this.ledgerClient,
+      this.merchantService,
       this.clock,
       this.logger,
     );
@@ -349,6 +356,217 @@ export class BankGateApp {
       const customerRef = (req.headers['x-customer-ref'] as string) || (req.query.customer_ref as string) || 'cust-101';
       const events = this.categoryBudget.listAuditEvents(tenantId, customerRef);
       res.status(200).json({ events });
+    });
+
+    // 11. Biometric Passkey Approval (Verification Gate 6)
+    this.app.post('/api/v1/category-reservations/:reservationId/approve', (req: Request, res: Response) => {
+      const customerRef = (req.headers['x-customer-ref'] as string) || req.body.customer_ref;
+      const { transaction_digest, biometric_signature } = req.body;
+      if (!customerRef || !transaction_digest || !biometric_signature) {
+        res.status(400).json({ error: 'Missing customer_ref, transaction_digest, or biometric_signature' });
+        return;
+      }
+
+      const valid = this.categoryBudget.verifyBiometricApproval({
+        reservationId: req.params.reservationId,
+        customerRef,
+        transactionDigest: transaction_digest,
+        biometricApprovalToken: biometric_signature,
+      });
+
+      if (!valid) {
+        res.status(403).json({ error: 'Biometric passkey signature verification failed or digest mismatch' });
+        return;
+      }
+
+      res.status(200).json({ approved: true, reservation_id: req.params.reservationId });
+    });
+
+    // ── DASHBOARD AGGREGATE SUMMARY (REAL API - ZERO MOCK) ─────────────────
+    this.app.get('/api/v1/dashboard/summary', (req: Request, res: Response) => {
+      const tenantId = (req.headers['x-tenant-id'] as string) || (req.query.tenant_id as string) || 'tenant-default';
+      const customerRef = (req.headers['x-customer-ref'] as string) || (req.query.customer_ref as string) || 'cust-101';
+      const summary = this.categoryBudget.getDashboardSummary(tenantId, customerRef);
+      res.status(200).json(summary);
+    });
+
+    // ── MULTI-AGENT ALLOCATION ROUTES (BP-3.1) ──────────────────────────────
+    this.app.get('/api/v1/agents/allocations', (req: Request, res: Response) => {
+      const tenantId = (req.headers['x-tenant-id'] as string) || (req.query.tenant_id as string) || 'tenant-default';
+      const customerRef = (req.headers['x-customer-ref'] as string) || (req.query.customer_ref as string) || 'cust-101';
+      const allocations = this.categoryBudget.listAgentAllocations(tenantId, customerRef);
+      res.status(200).json({ allocations });
+    });
+
+    this.app.post('/api/v1/category-pools/:poolId/agents', (req: Request, res: Response) => {
+      try {
+        const tenantId = (req.headers['x-tenant-id'] as string) || req.body.tenant_id;
+        const customerRef = (req.headers['x-customer-ref'] as string) || req.body.customer_ref;
+        if (!tenantId || !customerRef) {
+          res.status(400).json({ error: 'Missing tenant_id or customer_ref' });
+          return;
+        }
+
+        const alloc = this.categoryBudget.setAgentAllocation({
+          ...req.body,
+          pool_id: req.params.poolId,
+          tenant_id: tenantId,
+          customer_ref: customerRef,
+        });
+        res.status(201).json(alloc);
+      } catch (err: any) {
+        res.status(400).json({ error: err.message });
+      }
+    });
+
+    this.app.put('/api/v1/category-pools/:poolId/agents/:agentId', (req: Request, res: Response) => {
+      try {
+        const tenantId = (req.headers['x-tenant-id'] as string) || req.body.tenant_id;
+        const customerRef = (req.headers['x-customer-ref'] as string) || req.body.customer_ref;
+        if (!tenantId || !customerRef) {
+          res.status(400).json({ error: 'Missing tenant_id or customer_ref' });
+          return;
+        }
+
+        const updated = this.categoryBudget.updateAgentAllocation({
+          ...req.body,
+          pool_id: req.params.poolId,
+          agent_id: req.params.agentId,
+          tenant_id: tenantId,
+          customer_ref: customerRef,
+        });
+        res.status(200).json(updated);
+      } catch (err: any) {
+        res.status(400).json({ error: err.message });
+      }
+    });
+
+    this.app.get('/api/v1/category-pools/:poolId/agents', (req: Request, res: Response) => {
+      const tenantId = (req.headers['x-tenant-id'] as string) || (req.query.tenant_id as string) || 'tenant-default';
+      const customerRef = (req.headers['x-customer-ref'] as string) || (req.query.customer_ref as string) || 'cust-101';
+      const allocations = this.categoryBudget.listAgentAllocations(tenantId, customerRef, req.params.poolId);
+      res.status(200).json({ allocations });
+    });
+
+    this.app.post('/api/v1/category-pools/:poolId/agents/:agentId/status', (req: Request, res: Response) => {
+      try {
+        const tenantId = (req.headers['x-tenant-id'] as string) || req.body.tenant_id;
+        const customerRef = (req.headers['x-customer-ref'] as string) || req.body.customer_ref;
+        const status = req.body.status;
+        if (!tenantId || !customerRef || !status) {
+          res.status(400).json({ error: 'Missing tenant_id, customer_ref, or status' });
+          return;
+        }
+
+        const alloc = this.categoryBudget.setAgentAllocationStatus(tenantId, customerRef, req.params.agentId, req.params.poolId, status);
+        res.status(200).json(alloc);
+      } catch (err: any) {
+        res.status(400).json({ error: err.message });
+      }
+    });
+
+    // ── MERCHANT INTELLIGENCE ROUTES (BP-3.2) ───────────────────────────────
+    this.app.get('/api/v1/merchants', (req: Request, res: Response) => {
+      const query = req.query.q as string | undefined;
+      const category = req.query.category as string | undefined;
+      const status = req.query.status as string | undefined;
+      const merchants = this.merchantService.searchMerchants({ query, category, status });
+      res.status(200).json({ merchants });
+    });
+
+    this.app.get('/api/v1/merchants/conflicts', (_req: Request, res: Response) => {
+      const conflicts = this.merchantService.listConflicts();
+      res.status(200).json({ conflicts });
+    });
+
+    this.app.get('/api/v1/merchants/review-queue', (_req: Request, res: Response) => {
+      const queue = this.merchantService.listReviewQueue();
+      res.status(200).json({ queue });
+    });
+
+    this.app.post('/api/v1/merchants/evaluate', (req: Request, res: Response) => {
+      const tenantId = (req.headers['x-tenant-id'] as string) || req.body.tenant_id || 'tenant-default';
+      const customerRef = (req.headers['x-customer-ref'] as string) || req.body.customer_ref || 'cust-101';
+      const result = this.merchantService.evaluateMerchant(req.body, tenantId, customerRef);
+      res.status(200).json(result);
+    });
+
+    this.app.post('/api/v1/merchants/override', (req: Request, res: Response) => {
+      try {
+        const tenantId = (req.headers['x-tenant-id'] as string) || req.body.tenant_id;
+        const customerRef = (req.headers['x-customer-ref'] as string) || req.body.customer_ref;
+        if (!tenantId || !customerRef) {
+          res.status(400).json({ error: 'Missing tenant_id or customer_ref' });
+          return;
+        }
+        this.merchantService.setCustomerOverride({
+          ...req.body,
+          tenant_id: tenantId,
+          customer_ref: customerRef,
+        });
+        res.status(200).json({ success: true, message: 'Customer merchant override stored' });
+      } catch (err: any) {
+        res.status(400).json({ error: err.message });
+      }
+    });
+
+    // ── APPROVALS & EXCEPTIONS ROUTES (PART 4 SPEC) ─────────────────────────
+    this.app.get('/api/v1/approvals/pending', (req: Request, res: Response) => {
+      const tenantId = (req.headers['x-tenant-id'] as string) || (req.query.tenant_id as string) || 'tenant-default';
+      const customerRef = (req.headers['x-customer-ref'] as string) || (req.query.customer_ref as string) || 'cust-101';
+      const approvals = this.categoryBudget.listPendingApprovals(tenantId, customerRef);
+      res.status(200).json({ approvals });
+    });
+
+    this.app.get('/api/v1/exceptions', (req: Request, res: Response) => {
+      const tenantId = (req.headers['x-tenant-id'] as string) || (req.query.tenant_id as string) || 'tenant-default';
+      const customerRef = (req.headers['x-customer-ref'] as string) || (req.query.customer_ref as string) || 'cust-101';
+      const exceptions = this.categoryBudget.listExceptions(tenantId, customerRef);
+      res.status(200).json({ exceptions });
+    });
+
+    // ── MERKLE AUDIT VERIFICATION ROUTES (BP-3.5) ───────────────────────────
+    this.app.post('/api/v1/audit/merkle/batches', (req: Request, res: Response) => {
+      try {
+        const { batch_id, start_sequence, end_sequence } = req.body;
+        if (!batch_id || start_sequence === undefined || end_sequence === undefined) {
+          res.status(400).json({ error: 'Missing batch_id, start_sequence, or end_sequence' });
+          return;
+        }
+        const batch = this.merkleAudit.createBatch({
+          batchId: batch_id,
+          startSequence: Number(start_sequence),
+          endSequence: Number(end_sequence),
+        });
+        res.status(201).json(batch);
+      } catch (err: any) {
+        res.status(400).json({ error: err.message });
+      }
+    });
+
+    this.app.get('/api/v1/audit/merkle/batches', (_req: Request, res: Response) => {
+      const batches = this.merkleAudit.listBatches();
+      res.status(200).json({ batches });
+    });
+
+    this.app.get('/api/v1/audit/merkle/proofs/:eventId', (req: Request, res: Response) => {
+      try {
+        const batchId = req.query.batch_id as string;
+        if (!batchId) {
+          res.status(400).json({ error: 'Missing batch_id query parameter' });
+          return;
+        }
+        const proof = this.merkleAudit.getEventProof(batchId, req.params.eventId);
+        res.status(200).json(proof);
+      } catch (err: any) {
+        res.status(400).json({ error: err.message });
+      }
+    });
+
+    this.app.post('/api/v1/audit/merkle/verify', (req: Request, res: Response) => {
+      const result = this.merkleAudit.verifyEventInclusion(req.body);
+      const statusCode = result.valid ? 200 : 400;
+      res.status(statusCode).json(result);
     });
   }
 

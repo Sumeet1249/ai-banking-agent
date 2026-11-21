@@ -91,6 +91,27 @@ export interface ReservationPeriodAllocationRow {
   updated_at: number;
 }
 
+export interface AgentBudgetAllocationRow {
+  allocation_id: string;
+  pool_id: string;
+  agent_id: string;
+  tenant_id: string;
+  customer_ref: string;
+  agent_limit_paise: number;
+  monthly_limit_paise: number | null;
+  weekly_limit_paise: number | null;
+  daily_limit_paise: number;
+  per_transaction_limit_paise: number;
+  allowed_categories: string;
+  blocked_categories: string;
+  spent_amount_paise: number;
+  reserved_amount_paise: number;
+  status: 'ACTIVE' | 'SUSPENDED' | 'REVOKED';
+  valid_from: number;
+  valid_until: number;
+  version: number;
+}
+
 export interface BudgetAuditEventRow {
   event_id: string;
   sequence_number: number;
@@ -182,9 +203,21 @@ export class CategoryBudgetStore {
         settled_at INTEGER,
         released_at INTEGER,
         reversal_ref TEXT,
+        release_reason TEXT,
+        violations TEXT DEFAULT '[]',
         FOREIGN KEY (pool_id) REFERENCES category_budget_pools(pool_id),
         UNIQUE(tenant_id, customer_ref, idempotency_key)
       );
+    `);
+
+    try {
+      this.db.exec("ALTER TABLE category_budget_reservations ADD COLUMN violations TEXT DEFAULT '[]'");
+    } catch {}
+    try {
+      this.db.exec("ALTER TABLE category_budget_reservations ADD COLUMN release_reason TEXT");
+    } catch {}
+
+    this.db.exec(`
 
       CREATE INDEX IF NOT EXISTS idx_cbr_lookup ON category_budget_reservations(tenant_id, customer_ref, pool_id, status);
       CREATE INDEX IF NOT EXISTS idx_cbr_request ON category_budget_reservations(request_id);
@@ -211,9 +244,14 @@ export class CategoryBudgetStore {
         tenant_id TEXT NOT NULL,
         customer_ref TEXT NOT NULL,
         agent_limit_paise INTEGER NOT NULL,
+        monthly_limit_paise INTEGER,
+        weekly_limit_paise INTEGER,
         daily_limit_paise INTEGER NOT NULL,
         per_transaction_limit_paise INTEGER NOT NULL,
         allowed_categories TEXT NOT NULL,
+        blocked_categories TEXT NOT NULL DEFAULT '[]',
+        spent_amount_paise INTEGER NOT NULL DEFAULT 0,
+        reserved_amount_paise INTEGER NOT NULL DEFAULT 0,
         status TEXT NOT NULL DEFAULT 'ACTIVE',
         valid_from INTEGER NOT NULL,
         valid_until INTEGER NOT NULL,
@@ -221,6 +259,25 @@ export class CategoryBudgetStore {
         FOREIGN KEY (pool_id) REFERENCES category_budget_pools(pool_id),
         UNIQUE(tenant_id, customer_ref, agent_id, pool_id)
       );
+    `);
+
+    try {
+      this.db.exec("ALTER TABLE agent_budget_allocations ADD COLUMN monthly_limit_paise INTEGER");
+    } catch {}
+    try {
+      this.db.exec("ALTER TABLE agent_budget_allocations ADD COLUMN weekly_limit_paise INTEGER");
+    } catch {}
+    try {
+      this.db.exec("ALTER TABLE agent_budget_allocations ADD COLUMN blocked_categories TEXT NOT NULL DEFAULT '[]'");
+    } catch {}
+    try {
+      this.db.exec("ALTER TABLE agent_budget_allocations ADD COLUMN spent_amount_paise INTEGER NOT NULL DEFAULT 0");
+    } catch {}
+    try {
+      this.db.exec("ALTER TABLE agent_budget_allocations ADD COLUMN reserved_amount_paise INTEGER NOT NULL DEFAULT 0");
+    } catch {}
+
+    this.db.exec(`
 
       CREATE TABLE IF NOT EXISTS merchant_classifications (
         merchant_id TEXT PRIMARY KEY,
@@ -601,6 +658,16 @@ export class CategoryBudgetStore {
         .get(tenant_id, customer_ref, idempotency_key) as CategoryReservationRow | undefined;
 
       if (existingRes) {
+        if (existingRes.transaction_digest !== params.transaction_digest) {
+          return {
+            success: false,
+            reason: 'IDEMPOTENCY_KEY_REUSE_WITH_DIFFERENT_PAYLOAD',
+            violations: [
+              `Idempotency key ${idempotency_key} was previously used with a different transaction digest (Invariant I5)`,
+            ],
+          };
+        }
+
         const allocations = this.db
           .prepare('SELECT * FROM reservation_period_allocations WHERE reservation_id = ?')
           .all(existingRes.reservation_id) as ReservationPeriodAllocationRow[];
@@ -625,7 +692,68 @@ export class CategoryBudgetStore {
         return { success: false, reason: 'POOL_TEMPORALLY_INVALID' };
       }
 
-      // 3. Single-Transaction Ceiling Check
+      // 3. Sub-Agent Quota & Authorization Check (Phase BP-3.1)
+      const agentAlloc = this.db
+        .prepare(`
+          SELECT * FROM agent_budget_allocations
+          WHERE tenant_id = ? AND customer_ref = ? AND agent_id = ? AND pool_id = ?
+        `)
+        .get(tenant_id, customer_ref, params.agent_id, pool_id) as AgentBudgetAllocationRow | undefined;
+
+      if (agentAlloc) {
+        if (agentAlloc.status !== 'ACTIVE') {
+          return {
+            success: false,
+            reason: `AGENT_${agentAlloc.status}`,
+            violations: [`Agent ${params.agent_id} is currently ${agentAlloc.status} on pool ${pool_id}`],
+          };
+        }
+
+        if (now < agentAlloc.valid_from || now > agentAlloc.valid_until) {
+          return {
+            success: false,
+            reason: 'AGENT_DELEGATION_EXPIRED',
+            violations: [`Agent ${params.agent_id} delegation validity has expired`],
+          };
+        }
+
+        const blocked: string[] = JSON.parse(agentAlloc.blocked_categories || '[]');
+        if (blocked.includes(params.category_id)) {
+          return {
+            success: false,
+            reason: 'CATEGORY_BLOCKED_FOR_AGENT',
+            violations: [`Category ${params.category_id} is explicitly blocked for agent ${params.agent_id}`],
+          };
+        }
+
+        const allowed: string[] = JSON.parse(agentAlloc.allowed_categories || '[]');
+        if (allowed.length > 0 && !allowed.includes(params.category_id)) {
+          return {
+            success: false,
+            reason: 'CATEGORY_NOT_PERMITTED_FOR_AGENT',
+            violations: [`Category ${params.category_id} is not permitted for agent ${params.agent_id}`],
+          };
+        }
+
+        if (amount_paise > agentAlloc.per_transaction_limit_paise) {
+          return {
+            success: false,
+            reason: 'EXCEEDS_AGENT_PER_TRANSACTION_LIMIT',
+            violations: [`Amount ₹${amount_paise / 100} exceeds agent per-transaction limit ₹${agentAlloc.per_transaction_limit_paise / 100}`],
+          };
+        }
+
+        const projectedAgent = (agentAlloc.spent_amount_paise || 0) + (agentAlloc.reserved_amount_paise || 0) + amount_paise;
+        if (projectedAgent > agentAlloc.agent_limit_paise) {
+          return {
+            success: false,
+            reason: 'EXCEEDS_AGENT_TOTAL_LIMIT',
+            violations: [`Projected agent spend ₹${projectedAgent / 100} exceeds allocated quota ₹${agentAlloc.agent_limit_paise / 100}`],
+          };
+        }
+      }
+
+      // 4. Single-Transaction Ceiling Check
       if (amount_paise > pool.per_transaction_limit_paise) {
         return {
           success: false,
@@ -724,6 +852,18 @@ export class CategoryBudgetStore {
         });
       }
 
+      // If reservation is for an agent with an active allocation, track agent reserved quota
+      if (agentAlloc) {
+        this.db
+          .prepare(`
+            UPDATE agent_budget_allocations SET
+              reserved_amount_paise = reserved_amount_paise + ?,
+              version = version + 1
+            WHERE allocation_id = ?
+          `)
+          .run(amount_paise, agentAlloc.allocation_id);
+      }
+
       // 7. Audit Event
       this.appendAuditEventInternal(
         tenant_id,
@@ -808,6 +948,17 @@ export class CategoryBudgetStore {
           .run(alloc.amount_paise, alloc.amount_paise, alloc.period_id);
       }
 
+      // 3. Atomically update agent allocation if active
+      this.db
+        .prepare(`
+          UPDATE agent_budget_allocations SET
+            reserved_amount_paise = MAX(0, reserved_amount_paise - ?),
+            spent_amount_paise = spent_amount_paise + ?,
+            version = version + 1
+          WHERE tenant_id = ? AND customer_ref = ? AND agent_id = ? AND pool_id = ?
+        `)
+        .run(res.amount_paise, res.amount_paise, res.tenant_id, res.customer_ref, res.agent_id, res.pool_id);
+
       this.appendAuditEventInternal(
         res.tenant_id,
         res.customer_ref,
@@ -878,6 +1029,16 @@ export class CategoryBudgetStore {
           .run(alloc.amount_paise, alloc.period_id);
       }
 
+      // 3. Atomically release from agent allocation
+      this.db
+        .prepare(`
+          UPDATE agent_budget_allocations SET
+            reserved_amount_paise = MAX(0, reserved_amount_paise - ?),
+            version = version + 1
+          WHERE tenant_id = ? AND customer_ref = ? AND agent_id = ? AND pool_id = ?
+        `)
+        .run(res.amount_paise, res.tenant_id, res.customer_ref, res.agent_id, res.pool_id);
+
       this.appendAuditEventInternal(
         res.tenant_id,
         res.customer_ref,
@@ -946,6 +1107,16 @@ export class CategoryBudgetStore {
           .run(alloc.amount_paise, alloc.period_id);
       }
 
+      // 3. Atomically reverse settled amount from agent allocation
+      this.db
+        .prepare(`
+          UPDATE agent_budget_allocations SET
+            spent_amount_paise = MAX(0, spent_amount_paise - ?),
+            version = version + 1
+          WHERE tenant_id = ? AND customer_ref = ? AND agent_id = ? AND pool_id = ?
+        `)
+        .run(res.amount_paise, res.tenant_id, res.customer_ref, res.agent_id, res.pool_id);
+
       this.appendAuditEventInternal(
         res.tenant_id,
         res.customer_ref,
@@ -979,5 +1150,372 @@ export class CategoryBudgetStore {
         LIMIT ?
       `)
       .all(tenantId, customerRef, limit) as BudgetAuditEventRow[];
+  }
+
+  public markReservationPendingReconciliation(reservationId: string, reason: string): void {
+    this.db
+      .prepare(`
+        UPDATE category_budget_reservations SET
+          saga_state = 'PENDING_RECONCILIATION',
+          release_reason = ?
+        WHERE reservation_id = ?
+      `)
+      .run(reason, reservationId);
+  }
+
+  public listPendingApprovals(tenantId: string, customerRef: string): CategoryReservationRow[] {
+    return this.db
+      .prepare(`
+        SELECT * FROM category_budget_reservations
+        WHERE tenant_id = ? AND customer_ref = ? AND (saga_state = 'REQUIRES_HUMAN_APPROVAL' OR violations != '[]')
+        ORDER BY created_at DESC
+        LIMIT 50
+      `)
+      .all(tenantId, customerRef) as CategoryReservationRow[];
+  }
+
+  public listExceptions(tenantId: string, customerRef: string): CategoryReservationRow[] {
+    return this.db
+      .prepare(`
+        SELECT * FROM category_budget_reservations
+        WHERE tenant_id = ? AND customer_ref = ? AND saga_state IN ('PENDING_RECONCILIATION', 'REQUIRES_HUMAN_APPROVAL')
+        ORDER BY created_at DESC
+        LIMIT 50
+      `)
+      .all(tenantId, customerRef) as CategoryReservationRow[];
+  }
+
+  public getDashboardSummary(tenantId: string, customerRef: string) {
+    const pools = this.listPools(tenantId, customerRef);
+    const allocations = this.listAgentAllocations(tenantId, customerRef);
+    const pendingApprovals = this.listPendingApprovals(tenantId, customerRef);
+
+    let totalBudgetPaise = 0;
+    let totalSettledPaise = 0;
+    let totalReservedPaise = 0;
+
+    const categoryBreakdown = pools.map((p) => {
+      const monthlyPeriod = this.db.prepare(`
+        SELECT settled_amount_paise, reserved_amount_paise FROM budget_periods
+        WHERE pool_id = ? AND period_type = 'MONTHLY'
+        ORDER BY period_start DESC LIMIT 1
+      `).get(p.pool_id) as { settled_amount_paise: number; reserved_amount_paise: number } | undefined;
+
+      const settledPaise = monthlyPeriod?.settled_amount_paise ?? 0;
+      const reservedPaise = monthlyPeriod?.reserved_amount_paise ?? 0;
+
+      totalBudgetPaise += p.monthly_limit_paise;
+      totalSettledPaise += settledPaise;
+      totalReservedPaise += reservedPaise;
+
+      const availablePaise = Math.max(0, p.monthly_limit_paise - settledPaise - reservedPaise);
+      const utilizationPct = p.monthly_limit_paise > 0
+        ? Math.min(100, Math.round(((settledPaise + reservedPaise) / p.monthly_limit_paise) * 100))
+        : 0;
+
+      return {
+        pool_id: p.pool_id,
+        category: p.category_id,
+        name: p.category_name,
+        limit_paise: p.monthly_limit_paise,
+        settled_paise: settledPaise,
+        reserved_paise: reservedPaise,
+        available_paise: availablePaise,
+        utilization_pct: utilizationPct,
+        autonomy_mode: p.autonomy_mode,
+        status: p.status,
+      };
+    });
+
+    const totalAvailablePaise = Math.max(0, totalBudgetPaise - totalSettledPaise - totalReservedPaise);
+    const activeAgents = new Set(allocations.filter((a) => a.status === 'ACTIVE').map((a) => a.agent_id)).size;
+
+    return {
+      total_budget_paise: totalBudgetPaise,
+      total_settled_paise: totalSettledPaise,
+      total_reserved_paise: totalReservedPaise,
+      available_budget_paise: totalAvailablePaise,
+      active_agents_count: activeAgents,
+      active_delegations_count: allocations.length,
+      pending_customer_approvals_count: pendingApprovals.length,
+      pools_count: pools.length,
+      category_breakdown: categoryBreakdown,
+    };
+  }
+
+  // ── AGENT BUDGET ALLOCATIONS (PHASE BP-3.1) ──────────────────────────────
+
+  public setAgentAllocation(params: {
+    allocation_id?: string;
+    pool_id: string;
+    agent_id: string;
+    tenant_id: string;
+    customer_ref: string;
+    agent_limit_paise: number;
+    monthly_limit_paise?: number;
+    weekly_limit_paise?: number;
+    daily_limit_paise: number;
+    per_transaction_limit_paise: number;
+    allowed_categories: string[];
+    blocked_categories?: string[];
+    status?: 'ACTIVE' | 'SUSPENDED' | 'REVOKED';
+    valid_from?: number;
+    valid_until?: number;
+  }): AgentBudgetAllocationRow {
+    const now = Date.now();
+    const allocId = params.allocation_id || `aba_${params.pool_id}_${params.agent_id}`;
+    const validFrom = params.valid_from ?? now;
+    const validUntil = params.valid_until ?? now + 365 * 24 * 60 * 60 * 1000;
+    const status = params.status || 'ACTIVE';
+    const allowedJson = JSON.stringify(params.allowed_categories);
+    const blockedJson = JSON.stringify(params.blocked_categories || []);
+
+    const tx = this.db.transaction(() => {
+      // Subordinate check: Agent limit cannot exceed customer's parent pool monthly limit
+      const pool = this.getPool(params.tenant_id, params.customer_ref, params.pool_id);
+      if (!pool) {
+        throw new Error(`Parent category pool not found: ${params.pool_id}`);
+      }
+
+      if (params.agent_limit_paise > pool.monthly_limit_paise) {
+        throw new Error(
+          `Agent allocation limit ₹${params.agent_limit_paise / 100} exceeds parent pool monthly capacity ₹${pool.monthly_limit_paise / 100}`
+        );
+      }
+
+      this.db
+        .prepare(`
+          INSERT INTO agent_budget_allocations (
+            allocation_id, pool_id, agent_id, tenant_id, customer_ref,
+            agent_limit_paise, monthly_limit_paise, weekly_limit_paise, daily_limit_paise,
+            per_transaction_limit_paise, allowed_categories, blocked_categories,
+            spent_amount_paise, reserved_amount_paise, status, valid_from, valid_until, version
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, 1)
+          ON CONFLICT(tenant_id, customer_ref, agent_id, pool_id) DO UPDATE SET
+            agent_limit_paise = excluded.agent_limit_paise,
+            monthly_limit_paise = excluded.monthly_limit_paise,
+            weekly_limit_paise = excluded.weekly_limit_paise,
+            daily_limit_paise = excluded.daily_limit_paise,
+            per_transaction_limit_paise = excluded.per_transaction_limit_paise,
+            allowed_categories = excluded.allowed_categories,
+            blocked_categories = excluded.blocked_categories,
+            status = excluded.status,
+            valid_from = excluded.valid_from,
+            valid_until = excluded.valid_until,
+            version = agent_budget_allocations.version + 1
+        `)
+        .run(
+          allocId,
+          params.pool_id,
+          params.agent_id,
+          params.tenant_id,
+          params.customer_ref,
+          params.agent_limit_paise,
+          params.monthly_limit_paise ?? null,
+          params.weekly_limit_paise ?? null,
+          params.daily_limit_paise,
+          params.per_transaction_limit_paise,
+          allowedJson,
+          blockedJson,
+          status,
+          validFrom,
+          validUntil,
+        );
+
+      this.appendAuditEventInternal(
+        params.tenant_id,
+        params.customer_ref,
+        'CUSTOMER',
+        'AGENT_ALLOCATION_UPDATED',
+        allocId,
+        1,
+        {
+          agent_id: params.agent_id,
+          pool_id: params.pool_id,
+          agent_limit_paise: params.agent_limit_paise,
+          status,
+        },
+        now,
+      );
+    });
+
+    tx.immediate();
+    return this.getAgentAllocation(params.tenant_id, params.customer_ref, params.agent_id, params.pool_id)!;
+  }
+
+  public getAgentAllocation(
+    tenantId: string,
+    customerRef: string,
+    agentId: string,
+    poolId: string,
+  ): AgentBudgetAllocationRow | null {
+    const row = this.db
+      .prepare(`
+        SELECT * FROM agent_budget_allocations
+        WHERE tenant_id = ? AND customer_ref = ? AND agent_id = ? AND pool_id = ?
+      `)
+      .get(tenantId, customerRef, agentId, poolId) as AgentBudgetAllocationRow | undefined;
+    return row ?? null;
+  }
+
+  public listAgentAllocations(
+    tenantId: string,
+    customerRef: string,
+    poolId?: string,
+  ): AgentBudgetAllocationRow[] {
+    if (poolId) {
+      return this.db
+        .prepare(`
+          SELECT * FROM agent_budget_allocations
+          WHERE tenant_id = ? AND customer_ref = ? AND pool_id = ?
+          ORDER BY allocation_id ASC
+        `)
+        .all(tenantId, customerRef, poolId) as AgentBudgetAllocationRow[];
+    }
+    return this.db
+      .prepare(`
+        SELECT * FROM agent_budget_allocations
+        WHERE tenant_id = ? AND customer_ref = ?
+        ORDER BY allocation_id ASC
+      `)
+      .all(tenantId, customerRef) as AgentBudgetAllocationRow[];
+  }
+
+  public setAgentAllocationStatus(
+    tenantId: string,
+    customerRef: string,
+    agentId: string,
+    poolId: string,
+    status: 'ACTIVE' | 'SUSPENDED' | 'REVOKED',
+  ): AgentBudgetAllocationRow {
+    const now = Date.now();
+    const tx = this.db.transaction(() => {
+      const existing = this.getAgentAllocation(tenantId, customerRef, agentId, poolId);
+      if (!existing) {
+        throw new Error(`Agent allocation not found: agent=${agentId}, pool=${poolId}`);
+      }
+
+      // Security Invariant: REVOKED is a permanent terminal state
+      if (existing.status === 'REVOKED' && status !== 'REVOKED') {
+        throw new Error(`Cannot reactivate permanently REVOKED agent allocation: ${agentId}`);
+      }
+
+      // If resuming to ACTIVE, parent pool must also be ACTIVE
+      if (status === 'ACTIVE') {
+        const pool = this.getPool(tenantId, customerRef, poolId);
+        if (!pool || pool.status !== 'ACTIVE') {
+          throw new Error(`Cannot activate agent allocation under non-active parent pool (${pool?.status || 'NOT_FOUND'})`);
+        }
+      }
+
+      this.db
+        .prepare(`
+          UPDATE agent_budget_allocations SET
+            status = ?,
+            version = version + 1
+          WHERE tenant_id = ? AND customer_ref = ? AND agent_id = ? AND pool_id = ?
+        `)
+        .run(status, tenantId, customerRef, agentId, poolId);
+
+      this.appendAuditEventInternal(
+        tenantId,
+        customerRef,
+        'CUSTOMER',
+        'AGENT_STATUS_CHANGED',
+        agentId,
+        1,
+        { agent_id: agentId, pool_id: poolId, previous_status: existing.status, new_status: status },
+        now,
+      );
+    });
+
+    tx.immediate();
+    return this.getAgentAllocation(tenantId, customerRef, agentId, poolId)!;
+  }
+
+  public updateAgentAllocation(params: {
+    tenant_id: string;
+    customer_ref: string;
+    agent_id: string;
+    pool_id: string;
+    agent_limit_paise?: number;
+    monthly_limit_paise?: number;
+    weekly_limit_paise?: number;
+    daily_limit_paise?: number;
+    per_transaction_limit_paise?: number;
+    allowed_categories?: string[];
+    blocked_categories?: string[];
+  }): AgentBudgetAllocationRow {
+    const now = Date.now();
+    const tx = this.db.transaction(() => {
+      const existing = this.getAgentAllocation(params.tenant_id, params.customer_ref, params.agent_id, params.pool_id);
+      if (!existing) {
+        throw new Error(`Agent allocation not found: agent=${params.agent_id}, pool=${params.pool_id}`);
+      }
+      if (existing.status === 'REVOKED') {
+        throw new Error(`Cannot modify limits on a REVOKED agent allocation: ${params.agent_id}`);
+      }
+
+      const pool = this.getPool(params.tenant_id, params.customer_ref, params.pool_id);
+      if (!pool) {
+        throw new Error(`Parent category pool not found: ${params.pool_id}`);
+      }
+
+      const newLimit = params.agent_limit_paise ?? existing.agent_limit_paise;
+      if (newLimit > pool.monthly_limit_paise) {
+        throw new Error(`New agent limit ₹${newLimit / 100} exceeds parent pool monthly capacity ₹${pool.monthly_limit_paise / 100}`);
+      }
+      if (newLimit < (existing.spent_amount_paise + existing.reserved_amount_paise)) {
+        throw new Error(`New limit ₹${newLimit / 100} cannot be less than currently utilized capacity ₹${(existing.spent_amount_paise + existing.reserved_amount_paise) / 100}`);
+      }
+
+      const newAllowed = params.allowed_categories ? JSON.stringify(params.allowed_categories) : existing.allowed_categories;
+      const newBlocked = params.blocked_categories ? JSON.stringify(params.blocked_categories) : existing.blocked_categories;
+      const newDaily = params.daily_limit_paise ?? existing.daily_limit_paise;
+      const newPerTx = params.per_transaction_limit_paise ?? existing.per_transaction_limit_paise;
+      const newMonthly = params.monthly_limit_paise ?? existing.monthly_limit_paise;
+      const newWeekly = params.weekly_limit_paise ?? existing.weekly_limit_paise;
+
+      this.db
+        .prepare(`
+          UPDATE agent_budget_allocations SET
+            agent_limit_paise = ?,
+            monthly_limit_paise = ?,
+            weekly_limit_paise = ?,
+            daily_limit_paise = ?,
+            per_transaction_limit_paise = ?,
+            allowed_categories = ?,
+            blocked_categories = ?,
+            version = version + 1
+          WHERE tenant_id = ? AND customer_ref = ? AND agent_id = ? AND pool_id = ?
+        `)
+        .run(
+          newLimit,
+          newMonthly,
+          newWeekly,
+          newDaily,
+          newPerTx,
+          newAllowed,
+          newBlocked,
+          params.tenant_id,
+          params.customer_ref,
+          params.agent_id,
+          params.pool_id,
+        );
+
+      this.appendAuditEventInternal(
+        params.tenant_id,
+        params.customer_ref,
+        'CUSTOMER',
+        'AGENT_ALLOCATION_UPDATED',
+        params.agent_id,
+        1,
+        { agent_id: params.agent_id, pool_id: params.pool_id, new_limit: newLimit },
+        now,
+      );
+    });
+
+    tx.immediate();
+    return this.getAgentAllocation(params.tenant_id, params.customer_ref, params.agent_id, params.pool_id)!;
   }
 }
