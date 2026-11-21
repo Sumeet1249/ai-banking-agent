@@ -353,7 +353,7 @@ export function Security3DTopology({
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-secondary/80 border border-border text-xs font-semibold text-foreground">
             <Layers className="h-3.5 w-3.5 text-primary" strokeWidth={1.6} />
-            <span>Sovereign Vault Silicon Topology</span>
+            <span>3D Zero-Trust Vault</span>
           </div>
 
           <span
@@ -370,18 +370,11 @@ export function Security3DTopology({
                 isLiveBackend ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
               )}
             />
-            {isLiveBackend ? 'Live Cluster Telemetry' : 'Demonstration Mode'}
+            {isLiveBackend ? 'LIVE TELEMETRY' : 'DEMO MODE'}
           </span>
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Active Scenario Badge */}
-          {activeChoreo && (
-            <span className="rounded-md border border-border bg-secondary px-2 py-0.5 font-mono text-[11px] text-foreground hidden sm:inline-block">
-              {activeChoreo.owaspId}
-            </span>
-          )}
-
           {/* Master Shield Status Pill */}
           <span
             className={cn(
@@ -402,16 +395,16 @@ export function Security3DTopology({
             )}
             <span>
               {globalFreeze
-                ? 'Global Freeze Active'
+                ? 'Global Freeze'
                 : protectionEnabled
-                  ? 'Fortress Bridge Armed'
-                  : 'Shutters Retracted (Bypass)'}
+                  ? 'Shield Armed'
+                  : 'Bypassed'}
             </span>
           </span>
 
           {/* Camera Preset Toolbar (visible in 3D Mode) */}
           {viewMode === '3D' && (
-            <div className="hidden lg:flex items-center bg-secondary/80 border border-border rounded-lg p-0.5 text-xs font-mono gap-0.5">
+            <div className="hidden sm:flex items-center bg-secondary/80 border border-border rounded-lg p-0.5 text-xs font-mono gap-0.5">
               <button
                 type="button"
                 onClick={() => setActiveCameraPreset('orbit')}
@@ -421,9 +414,9 @@ export function Security3DTopology({
                     ? 'bg-primary text-primary-foreground font-semibold shadow-xs'
                     : 'text-muted-foreground hover:text-foreground'
                 )}
-                title="Orbit 3/4 Isometric Hardware View"
+                title="Overview 3/4 Studio View"
               >
-                Orbit
+                Overview
               </button>
               <button
                 type="button"
@@ -436,7 +429,7 @@ export function Security3DTopology({
                 )}
                 title="Focus on Center Zero-Trust DMZ Bridge"
               >
-                DMZ Bridge
+                DMZ
               </button>
               <button
                 type="button"
@@ -447,9 +440,9 @@ export function Security3DTopology({
                     ? 'bg-primary text-primary-foreground font-semibold shadow-xs'
                     : 'text-muted-foreground hover:text-foreground'
                 )}
-                title="Focus on Core Banking Vault Citadel"
+                title="Focus on Sovereign Bank Vault Core"
               >
-                Core Vault
+                Vault
               </button>
             </div>
           )}
@@ -466,7 +459,7 @@ export function Security3DTopology({
                   : 'text-muted-foreground hover:text-foreground'
               )}
             >
-              3D Mesh
+              3D
             </button>
             <button
               onClick={() => setViewMode('2D')}
@@ -477,7 +470,7 @@ export function Security3DTopology({
                   : 'text-muted-foreground hover:text-foreground'
               )}
             >
-              2D Schematic
+              2D
             </button>
           </div>
 
@@ -499,10 +492,10 @@ export function Security3DTopology({
       </div>
 
       {/* ── Main Visualizer Area ──────────────────────────────────────────── */}
-      <div className="flex-1 w-full min-h-[460px] relative bg-gradient-to-b from-card via-background to-card">
+      <div className="flex-1 w-full min-h-[520px] relative bg-gradient-to-b from-card via-background to-card">
         {viewMode === '3D' && hasWebGL ? (
           /* High-Fidelity 3D WebGL Canvas Scene */
-          <div className="w-full h-[470px] relative">
+          <div className="w-full h-[520px] relative">
             {/* Top-Left In-Canvas Live Execution Telemetry Pill */}
             <div className="absolute top-3 left-3 z-20 pointer-events-none max-w-[calc(100%-24px)]">
               {animatingRay ? (
@@ -575,46 +568,46 @@ export function Security3DTopology({
             />
 
             {/* ── Live Synced 3-Step Storyboard Bar (Inside Bottom of 3D Canvas) ── */}
-            <div className="absolute bottom-2.5 left-3 right-3 z-20 pointer-events-none">
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-2 p-2 rounded-xl bg-slate-950/90 border border-white/10 backdrop-blur-md text-[11px] font-mono shadow-2xl">
-                {/* Step 1: Origin */}
+            <div className="absolute bottom-3 left-3 right-3 z-20 pointer-events-none">
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-950/90 border border-white/10 backdrop-blur-md text-[11px] font-mono shadow-2xl">
+                {/* Step 1: 01 ORIGIN */}
                 <div
                   className={cn(
-                    'flex items-center gap-1.5 px-2.5 py-1 rounded-lg transition-colors',
+                    'flex items-center gap-1.5 px-2.5 py-1 rounded-lg transition-colors min-w-0 flex-1',
                     animPhase >= 1 && animatingRay
                       ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
                       : 'text-muted-foreground'
                   )}
                 >
-                  <span className="font-bold">1. ORIGIN:</span>
-                  <span className="truncate max-w-[180px] sm:max-w-[220px]">
+                  <span className="font-bold shrink-0 text-cyan-400">01 ORIGIN:</span>
+                  <span className="truncate">
                     {activeChoreo.originLabel}
                   </span>
                 </div>
 
-                <span className="text-muted-foreground/40 hidden sm:inline">──▶</span>
+                <span className="text-muted-foreground/40 hidden sm:inline shrink-0">──▶</span>
 
-                {/* Step 2: DMZ Bridge */}
+                {/* Step 2: 02 DMZ GATE */}
                 <div
                   className={cn(
-                    'flex items-center gap-1.5 px-2.5 py-1 rounded-lg transition-colors',
+                    'flex items-center gap-1.5 px-2.5 py-1 rounded-lg transition-colors min-w-0 flex-1',
                     animPhase >= 2 && animatingRay
                       ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
                       : 'text-muted-foreground'
                   )}
                 >
-                  <span className="font-bold">2. DMZ GATE:</span>
-                  <span className="truncate max-w-[180px] sm:max-w-[220px]">
+                  <span className="font-bold shrink-0 text-amber-400">02 DMZ GATE:</span>
+                  <span className="truncate">
                     {activeChoreo.dmzLabel}
                   </span>
                 </div>
 
-                <span className="text-muted-foreground/40 hidden sm:inline">──▶</span>
+                <span className="text-muted-foreground/40 hidden sm:inline shrink-0">──▶</span>
 
-                {/* Step 3: Outcome */}
+                {/* Step 3: 03 VERDICT */}
                 <div
                   className={cn(
-                    'flex items-center gap-1.5 px-2.5 py-1 rounded-lg transition-colors',
+                    'flex items-center gap-1.5 px-2.5 py-1 rounded-lg transition-colors min-w-0 flex-1',
                     simulationVerdict === 'blocked'
                       ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
                       : simulationVerdict === 'breached'
@@ -624,13 +617,13 @@ export function Security3DTopology({
                           : 'text-muted-foreground'
                   )}
                 >
-                  <span className="font-bold">3. OUTCOME:</span>
-                  <span className="truncate max-w-[200px] sm:max-w-[260px]">
+                  <span className="font-bold shrink-0 text-emerald-400">03 VERDICT:</span>
+                  <span className="truncate">
                     {simulationVerdict === 'blocked'
                       ? activeChoreo.protectedVerdictBadge
                       : simulationVerdict === 'breached'
                         ? activeChoreo.bypassedVerdictBadge
-                        : 'Sovereign Consensus Ready'}
+                        : 'Pre-Execution Shield Active'}
                   </span>
                 </div>
               </div>

@@ -9,7 +9,7 @@ import {
   LayoutDashboard, FileText, Shield, ScrollText, Sparkles,
   CheckCircle, AlertTriangle, Settings,
   ShieldHalf, ClipboardList, UserRound, Layers, FileCheck2,
-  Menu, X, Undo2, Box, Wallet, Pin, PinOff,
+  Menu, X, Undo2, Box, Wallet, Pin, PinOff, TrendingUp,
 } from 'lucide-react'
 import { useTraceStream } from '@/hooks/useTraceStream'
 import { BlockAlertToast } from '@/components/ui/block-alert-toast'
@@ -50,9 +50,10 @@ const navGroups: Array<{ label: string | null; items: NavDef[] }> = [
     ],
   },
   {
-    label: 'AI Agents',
+    label: 'AI Agents & Research',
     items: [
       { name: 'Agent Registry', href: '/agents', icon: UserRound },
+      { name: 'Market Intelligence', href: '/market-intelligence', icon: TrendingUp, badge: 'RESEARCH' },
     ],
   },
   {
@@ -603,7 +604,7 @@ function DesktopSidebarContent({
                 className={cn(
                   'hidden md:flex md:flex-col flex-shrink-0 h-screen relative z-30 overflow-hidden border-r border-border/80 transition-[width] duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] select-none',
                   isExpanded
-                      ? 'w-[256px] bg-[hsl(var(--sidebar))]'
+                      ? 'w-[272px] bg-[hsl(var(--sidebar))]'
                       : 'w-16 bg-[hsl(var(--sidebar))]'
                 )}
               >
