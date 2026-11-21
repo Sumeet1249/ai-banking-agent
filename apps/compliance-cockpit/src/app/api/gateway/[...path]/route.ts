@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { serverAgentStore } from '@/lib/server-agent-store'
+import { serverApprovalStore } from '@/lib/server-approval-store'
 import { mockTraces } from '@/lib/mock-traces'
 
-const BASE = process.env['GATEWAY_URL'] || 'http://localhost:8080'
+const BASE = process.env['GATEWAY_URL'] || 'http://127.0.0.1:8080'
 
 // Demo mode: when this is a public-facing demo build without a real
 // gateway behind it, short-circuit gateway-proxy calls with sensible
@@ -104,10 +105,10 @@ function demoEmptyShape(path: string): unknown {
   if (path.startsWith('policies')) return [];
   if (path.startsWith('violations')) return { violations: [] };
   if (path.startsWith('approvals')) return { approvals: [] };
-  if (path === 'check/pending' || path.startsWith('check/pending')) return { checks: sharedPendingChecks };
+  if (path === 'check/pending' || path.startsWith('check/pending')) return { checks: serverApprovalStore.listChecks() };
   if (path === 'stats' || path.startsWith('stats?')) return {
     totalTraces: 516,
-    pendingChecks: sharedPendingChecks.length,
+    pendingChecks: serverApprovalStore.count(),
     violations24h: 12,
     activeAgents: 4,
     tracesTrend: 12,
@@ -145,8 +146,8 @@ async function checkGatewayAlive(): Promise<boolean> {
   }
   _lastGatewayCheck = now
   try {
-    const res = await fetch(`${BASE}/health`, {
-      signal: AbortSignal.timeout(300),
+    const res = await fetch(`http://127.0.0.1:8080/health`, {
+      signal: AbortSignal.timeout(150),
       cache: 'no-store',
     })
     _isGatewayAlive = res.ok
@@ -194,12 +195,12 @@ function handleLocalFallback(
   try {
     if (method === 'GET') {
       if (path === 'check/pending' || path.startsWith('check/pending')) {
-        return NextResponse.json({ checks: sharedPendingChecks })
+        return NextResponse.json({ checks: serverApprovalStore.listChecks() })
       }
       if (path === 'stats' || path.startsWith('stats?')) {
         return NextResponse.json({
           totalTraces: 516,
-          pendingChecks: sharedPendingChecks.length,
+          pendingChecks: serverApprovalStore.count(),
           violations24h: 12,
           activeAgents: 4,
           tracesTrend: 12,
@@ -241,25 +242,8 @@ function handleLocalFallback(
     if (method === 'POST') {
       const parsed = bodyText ? JSON.parse(bodyText) : {}
       if (path === 'check' || path === 'check/pending' || path.startsWith('check')) {
-        const checkId = parsed.check_id || `chk-${Math.random().toString(36).substring(2, 9)}`
-        const newCheck = {
-          check_id: checkId,
-          agent_id: parsed.agent_id || 'agent-policy',
-          agent_name: parsed.agent_name || 'Policy Engine',
-          tool_name: parsed.tool_name || 'payment_execute',
-          category: parsed.category || 'network',
-          risk_level: parsed.risk_level || parsed.risk || 'HIGH',
-          risk: parsed.risk || parsed.risk_level || 'HIGH',
-          workflow_id: parsed.workflow_id,
-          reservation_id: parsed.reservation_id,
-          source: parsed.source || 'cockpit',
-          arguments: parsed.arguments || {},
-          violations: parsed.violations || ['Action held for human dual-authorization.'],
-          created_at: parsed.created_at || new Date().toISOString(),
-        }
-        // Avoid duplicate check_id
-        sharedPendingChecks = [newCheck, ...sharedPendingChecks.filter(c => c.check_id !== checkId)]
-        return NextResponse.json({ ok: true, check: newCheck, check_id: checkId }, { status: 201 })
+        const added = serverApprovalStore.addCheck(parsed)
+        return NextResponse.json({ ok: true, check: added, check_id: added.check_id }, { status: 201 })
       }
       if (path === 'agents') {
         const res = serverAgentStore.createAgent(parsed)
@@ -285,14 +269,13 @@ function handleLocalFallback(
       if (path.startsWith('check/')) {
         const checkId = path.replace('check/', '')
         const parsed = bodyText ? JSON.parse(bodyText) : {}
-        const prevCount = sharedPendingChecks.length
-        sharedPendingChecks = sharedPendingChecks.filter(c => c.check_id !== checkId)
+        const removed = serverApprovalStore.resolveCheck(checkId, parsed.decision)
         return NextResponse.json({
           ok: true,
           check_id: checkId,
           decision: parsed.decision || 'allow',
-          removed: prevCount !== sharedPendingChecks.length,
-          remaining: sharedPendingChecks.length,
+          removed,
+          remaining: serverApprovalStore.count(),
         })
       }
       if (path.startsWith('agents/')) {
@@ -316,7 +299,7 @@ function handleLocalFallback(
     if (method === 'DELETE') {
       if (path.startsWith('check/')) {
         const checkId = path.replace('check/', '')
-        sharedPendingChecks = sharedPendingChecks.filter(c => c.check_id !== checkId)
+        serverApprovalStore.resolveCheck(checkId)
         return NextResponse.json({ ok: true, check_id: checkId })
       }
       if (path.startsWith('agents/')) {

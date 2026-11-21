@@ -16,6 +16,7 @@ import { BlockAlertToast } from '@/components/ui/block-alert-toast'
 import { StatusBar } from '@/components/dashboard/status-bar'
 import { ThemeToggle } from '@/components/ui/theme-toggle'
 import { AccountWidget } from '@/components/dashboard/account-widget'
+import { PlanTierBadge } from '@/components/billing/plan-tier-badge'
 import { use3DTilt } from '@/hooks/use3DTilt'
 import { SpatialStage } from '@/components/spatial/spatial-stage'
 
@@ -338,6 +339,7 @@ function DesktopSidebarContent({
                 <span>Iso</span>
               </button>
             </div>
+            <PlanTierBadge variant="sidebar" collapsed={false} />
             <AccountWidget />
             <p className="text-[10px] text-muted-foreground/80 whitespace-nowrap">v{process.env.APP_VERSION || '1.0.0'}</p>
           </>
@@ -374,6 +376,7 @@ function DesktopSidebarContent({
             >
               <Box className="h-3.5 w-3.5" strokeWidth={1.6} />
             </button>
+            <PlanTierBadge variant="sidebar" collapsed={true} />
           </div>
         )}
       </div>
@@ -493,6 +496,7 @@ function MobileSidebarContent({
             <span>Iso</span>
           </button>
         </div>
+        <PlanTierBadge variant="sidebar" collapsed={false} />
         <AccountWidget />
         <p className="text-[11px]" style={{ color: MUTED, opacity: 0.85 }}>
           v{process.env.APP_VERSION || '1.0.0'}

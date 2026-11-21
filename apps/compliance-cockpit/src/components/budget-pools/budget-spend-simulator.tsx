@@ -101,12 +101,12 @@ export function BudgetSpendSimulatorDrawer({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(pendingCheck),
-    }).catch(() => {})
+    }).catch(() => { })
 
     window.dispatchEvent(new CustomEvent('aegis-approval-event', { detail: pendingCheck }))
     try {
       localStorage.setItem('aegis-pending-check-latest', JSON.stringify(pendingCheck))
-    } catch {}
+    } catch { }
   }
 
   // Real-time bidirectional listener for Approvals Console decisions
@@ -141,7 +141,7 @@ export function BudgetSpendSimulatorDrawer({
               onSuccess()
             }
           }
-        } catch {}
+        } catch { }
       }
     }
 
@@ -210,7 +210,7 @@ export function BudgetSpendSimulatorDrawer({
         } else {
           toast.warning(`Spend Rejected (${data.decision}): ${data.reason || 'Limits or policy breach'}`)
         }
-        onSuccess()
+        try { onSuccess?.() } catch { }
         return
       }
 
@@ -235,7 +235,7 @@ export function BudgetSpendSimulatorDrawer({
         registerSimulatorPendingCheck(fallbackData.reservation_id, requestedPaise, fallbackData.reason)
         toast.info(`Human Step-Up (ASK) Triggered! Real approval request from ${targetAgent?.name || 'Agent'} reflected in /approvals tab.`)
       }
-      onSuccess()
+      try { onSuccess?.() } catch { }
     } catch (err: any) {
       // Local fallback simulation if network fails
       const requestedPaise = amountRupees * 100
@@ -258,7 +258,7 @@ export function BudgetSpendSimulatorDrawer({
         registerSimulatorPendingCheck(fallbackData.reservation_id, requestedPaise, fallbackData.reason)
         toast.info(`Human Step-Up (ASK) Triggered! Real approval request from ${targetAgent?.name || 'Agent'} reflected in /approvals tab.`)
       }
-      onSuccess()
+      try { onSuccess?.() } catch { }
     } finally {
       setEvaluating(false)
     }
@@ -442,11 +442,10 @@ export function BudgetSpendSimulatorDrawer({
                     key={amt}
                     type="button"
                     onClick={() => setAmountRupees(amt)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-mono border transition ${
-                      amountRupees === amt
+                    className={`px-2.5 py-1 rounded-lg text-xs font-mono border transition ${amountRupees === amt
                         ? 'bg-primary text-primary-foreground border-primary font-bold shadow-sm'
                         : 'bg-background text-muted-foreground border-border hover:text-foreground'
-                    }`}
+                      }`}
                   >
                     ₹{amt >= 1000 ? `${amt / 1000}k` : amt}
                   </button>
@@ -465,13 +464,12 @@ export function BudgetSpendSimulatorDrawer({
             {/* Live Evaluation Verdict Telemetry Box */}
             {evaluationResult && (
               <div
-                className={`p-4 rounded-xl border space-y-2.5 transition animate-in fade-in ${
-                  evaluationResult.decision === 'ALLOW'
+                className={`p-4 rounded-xl border space-y-2.5 transition animate-in fade-in ${evaluationResult.decision === 'ALLOW'
                     ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500'
                     : evaluationResult.decision === 'ASK'
-                    ? 'bg-amber-500/10 border-amber-500/30 text-amber-500'
-                    : 'bg-destructive/10 border-destructive/30 text-destructive'
-                }`}
+                      ? 'bg-amber-500/10 border-amber-500/30 text-amber-500'
+                      : 'bg-destructive/10 border-destructive/30 text-destructive'
+                  }`}
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 font-bold text-sm">
@@ -486,8 +484,8 @@ export function BudgetSpendSimulatorDrawer({
                       {evaluationResult.decision === 'ALLOW'
                         ? 'ALLOW · Reserved 90s TTL'
                         : evaluationResult.decision === 'ASK'
-                        ? 'ASK · Escalated for Passkey'
-                        : 'BLOCK · Invariant I1 Ceiling Breached'}
+                          ? 'ASK · Escalated for Passkey'
+                          : 'BLOCK · Invariant I1 Ceiling Breached'}
                     </span>
                   </div>
                   <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-background/50 font-bold border border-current/20">

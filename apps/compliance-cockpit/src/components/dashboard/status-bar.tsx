@@ -6,13 +6,14 @@ import { gw } from '@/lib/gateway'
 import { USE_MOCK, mockTotalActions, mockPendingChecks, mockViolations, mockAgents } from '@/lib/mock-traces'
 import { readLicense, type LicenseState } from '@/components/settings/license-panel'
 import { UsageMeter } from '@/components/dashboard/usage-meter'
+import { PlanTierBadge } from '@/components/billing/plan-tier-badge'
 
-const BORDER  = 'hsl(var(--border))'
-const TEXT    = 'hsl(var(--foreground))'
-const MUTED   = 'hsl(var(--muted-foreground))'
-const BG      = 'hsl(var(--background))'
-const OK      = 'hsl(150 22% 38%)'   // moss, matches /welcome decision color
-const ALERT   = 'hsl(0 50% 38%)'     // oxblood
+const BORDER = 'hsl(var(--border))'
+const TEXT = 'hsl(var(--foreground))'
+const MUTED = 'hsl(var(--muted-foreground))'
+const BG = 'hsl(var(--background))'
+const OK = 'hsl(150 22% 38%)'   // moss, matches /welcome decision color
+const ALERT = 'hsl(0 50% 38%)'     // oxblood
 const PENDING = 'hsl(36 60% 32%)'    // mustard
 
 interface Stats {
@@ -62,11 +63,11 @@ export function StatusBar() {
 
       if (!cancelled && !stats) {
         setStats({
-          totalTraces:   mockTotalActions(),
+          totalTraces: mockTotalActions(),
           pendingChecks: 5,
           violations24h: mockViolations().length,
-          activeAgents:  mockAgents().filter(a => a.status === 'active').length,
-          tracesTrend:   12,
+          activeAgents: mockAgents().filter(a => a.status === 'active').length,
+          tracesTrend: 12,
         })
         setReachable(true)
       }
@@ -133,8 +134,8 @@ export function StatusBar() {
   const isLive = reachable && stats !== null
   const blocked = effectiveStats.violations24h ?? 0
   const pending = effectiveStats.pendingChecks ?? 0
-  const traces  = effectiveStats.totalTraces ?? 0
-  const agents  = effectiveStats.activeAgents ?? 0
+  const traces = effectiveStats.totalTraces ?? 0
+  const agents = effectiveStats.activeAgents ?? 0
 
   return (
     <div
@@ -208,15 +209,7 @@ export function StatusBar() {
       )}
 
       <span className="opacity-50 ml-auto hidden md:inline">·</span>
-      <span className="hidden sm:inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-0.5 rounded-full"
-         style={{
-           background: 'hsl(150 40% 92%)',
-           color: 'hsl(150 50% 25%)',
-           border: '1px solid hsl(150 40% 80%)',
-         }}>
-        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-        ENTERPRISE · ACTIVE
-      </span>
+      <PlanTierBadge variant="statusBar" />
       <span className="opacity-50 hidden sm:inline">·</span>
       <span className="hidden sm:inline" style={{ color: MUTED, opacity: 0.7 }}>
         live · refresh 10s

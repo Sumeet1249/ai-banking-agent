@@ -82,6 +82,7 @@ export function PendingChecks() {
   // Listen for real-time approval events from Workflow Studio & Budget Pools
   useEffect(() => {
     const onApprovalEvent = () => {
+      setMockCheckOverrides(null)
       refetch()
       queryClient.invalidateQueries({ queryKey: ['pending-checks'] })
       queryClient.invalidateQueries({ queryKey: ['stats'] })

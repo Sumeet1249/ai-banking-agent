@@ -689,6 +689,52 @@ export function AnonymousBudgetPoolsView() {
     }
   }
 
+  const registerStepUpCheck = (resId: string, pool: UIBudgetPool, agentId: string, amtPaise: number, reason?: string) => {
+    const checkId = `chk-stepup-${Date.now().toString(36)}`
+    const agentName = agentId.includes('shopping')
+      ? 'Autonomous Procurement Bot #01'
+      : agentId.includes('finops')
+      ? 'FinOps Cloud Scaler #03'
+      : 'Autonomous Procurement Bot #01'
+
+    const pendingCheck = {
+      check_id: checkId,
+      agent_id: agentId,
+      agent_name: agentName,
+      tool_name: 'category_reservation',
+      category: 'network',
+      risk_level: 'HIGH',
+      risk: 'HIGH',
+      source: 'budget_simulator',
+      reservation_id: resId,
+      arguments: {
+        pool: pool.category_name,
+        category_id: pool.category_id,
+        amount: Math.round(amtPaise / 100),
+        amount_paise: amtPaise,
+        merchant: 'Amazon India',
+        mcc: '5311',
+        payee: 'Amazon India',
+        destination: pool.category_name,
+      },
+      violations: [
+        reason || `Spend of ₹${Math.round(amtPaise / 100).toLocaleString('en-IN')} in ${pool.category_name} exceeds per-transaction limit (₹${Math.round((pool.per_transaction_limit_paise || 100000) / 100).toLocaleString('en-IN')}) — Invariant I1 Step-Up required.`
+      ],
+      created_at: new Date().toISOString(),
+    }
+
+    fetch('/api/gateway/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(pendingCheck),
+    }).catch(() => {})
+
+    window.dispatchEvent(new CustomEvent('aegis-approval-event', { detail: pendingCheck }))
+    try {
+      localStorage.setItem('aegis-pending-check-latest', JSON.stringify(pendingCheck))
+    } catch {}
+  }
+
   const handleRunTestSpend = async () => {
     const poolToUse = pools.find((p) => p.pool_id === testSpendPoolId) || pools[0]
     if (!poolToUse) {
@@ -735,7 +781,8 @@ export function AnonymousBudgetPoolsView() {
         if (isAllowed) {
           toast.success(`Spend Permitted! Reservation ID: ${simResult.reservation_id.slice(0, 8)}... (Local Simulation)`)
         } else {
-          toast.info(`Human Step-Up (ASK) triggered: Escalated to Approvals Queue (Local Simulation)`)
+          registerStepUpCheck(simResult.reservation_id, poolToUse, testSpendAgentId || 'agent-shopping-bot-01', requestedPaise, simResult.reason)
+          toast.info(`Human Step-Up (ASK) triggered: Real approval request reflected in Approvals tab!`)
         }
         return
       }
@@ -745,7 +792,8 @@ export function AnonymousBudgetPoolsView() {
       if (data.decision === 'ALLOW') {
         toast.success(`Spend Permitted! Reservation ID: ${data.reservation_id?.slice(0, 8)}...`)
       } else if (data.decision === 'ASK') {
-        toast.info(`Human Step-Up (ASK) triggered: Escalated to Approvals Queue`)
+        registerStepUpCheck(data.reservation_id || 'res_' + Date.now().toString(36), poolToUse, testSpendAgentId || 'agent-shopping-bot-01', testSpendRupees * 100, data.reason)
+        toast.info(`Human Step-Up (ASK) triggered: Real approval request reflected in Approvals tab!`)
       } else {
         toast.warning(`Spend Rejected (${data.decision}): ${data.reason || 'Limits exceeded'}`)
       }
@@ -1106,12 +1154,14 @@ export function AnonymousBudgetPoolsView() {
           expires_at: Date.now() + 180000,
         }
         setApprovals((prev) => [newApproval, ...prev])
-        toast.info('Step-Up (ASK) escalation created! Review the card in Approvals tab (Local Preview Mode).')
+        registerStepUpCheck(newApproval.reservation_id, targetPool, 'agent-procure-ai-07', 850000, 'Spend exceeds per-transaction limit — Invariant I1 Step-Up required.')
+        toast.info('Step-Up (ASK) escalation created! Review the card in Approvals tab.')
         return
       }
 
       const data = await res.json()
       if (data.decision === 'ASK') {
+        registerStepUpCheck(data.reservation_id || 'res_stepup_' + Date.now().toString(36), targetPool, 'agent-procure-ai-07', 850000, data.reason)
         toast.info('Step-Up (ASK) escalation created! Review the card in Approvals tab.')
       } else {
         toast.success(`Reservation evaluated: ${data.decision}`)

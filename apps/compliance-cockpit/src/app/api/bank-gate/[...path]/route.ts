@@ -1,6 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { serverApprovalStore } from '@/lib/server-approval-store'
 
-const BANK_GATE_URL = process.env.BANK_GATE_URL || 'http://localhost:4000'
+const BANK_GATE_URL = process.env.BANK_GATE_URL || 'http://127.0.0.1:4000'
+
+let _lastBankGateCheck = 0
+let _isBankGateAlive = false
+
+async function checkBankGateAlive(): Promise<boolean> {
+  const now = Date.now()
+  if (now - _lastBankGateCheck < 10000) {
+    return _isBankGateAlive
+  }
+  _lastBankGateCheck = now
+  try {
+    const res = await fetch(`http://127.0.0.1:4000/health`, {
+      signal: AbortSignal.timeout(150),
+      cache: 'no-store',
+    })
+    _isBankGateAlive = res.ok
+  } catch {
+    _isBankGateAlive = false
+  }
+  return _isBankGateAlive
+}
 
 // ── In-Memory Authoritative Bank Gate Fallback State ──────────────────────────
 // Maintains state across requests if Bank Gate :4000 is offline
@@ -532,12 +554,19 @@ function handleFallback(
 
     if (amt > perTxLimit) {
       const reservationId = 'res_stepup_' + Date.now().toString(36)
+      const agentId = bodyJson.agent_id || 'agent-shopping-bot-01'
+      const agentName = agentId.includes('shopping')
+        ? 'Autonomous Procurement Bot #01'
+        : agentId.includes('finops')
+        ? 'FinOps Cloud Scaler #03'
+        : 'Autonomous Procurement Bot #01'
+
       const newApproval = {
         reservation_id: reservationId,
         pool_id: pool.pool_id,
         tenant_id: 'tenant-default',
         customer_ref: 'cust-101',
-        agent_id: bodyJson.agent_id || 'agent-procure-ai-07',
+        agent_id: agentId,
         workflow_id: bodyJson.workflow_id || 'wf-stepup-' + Date.now(),
         request_id: bodyJson.request_id || 'req-stepup-' + Date.now(),
         transaction_digest: 'sha256:' + Date.now().toString(16) + '7f83b1657ff1fc53b92dc18148a1d65d',
@@ -551,6 +580,31 @@ function handleFallback(
         expires_at: Date.now() + 180000,
       }
       memoryApprovals.unshift(newApproval)
+
+      // Synchronize directly into Approvals Console queue
+      serverApprovalStore.addCheck({
+        check_id: 'chk-stepup-' + reservationId,
+        agent_id: agentId,
+        agent_name: agentName,
+        tool_name: 'category_reservation',
+        category: 'network',
+        risk_level: 'HIGH',
+        risk: 'HIGH',
+        source: 'budget_simulator',
+        reservation_id: reservationId,
+        arguments: {
+          pool: pool.category_name,
+          category_id: pool.category_id,
+          amount: Math.round(amt / 100),
+          amount_paise: amt,
+          merchant: bodyJson.merchant_id || 'Amazon India',
+          payee: bodyJson.merchant_id || 'Amazon India',
+          destination: pool.category_name,
+        },
+        violations: [
+          `Spend of ₹${(amt / 100).toLocaleString('en-IN')} in ${pool.category_name} exceeds per-transaction limit (₹${(perTxLimit / 100).toLocaleString('en-IN')}) — Invariant I1 Step-Up required.`
+        ],
+      })
 
       return NextResponse.json(
         {
@@ -598,6 +652,7 @@ function handleFallback(
   if (releaseMatch && method === 'POST') {
     const reservationId = releaseMatch[1]
     memoryApprovals = memoryApprovals.filter((a) => a.reservation_id !== reservationId)
+    serverApprovalStore.resolveCheck(reservationId, 'block')
     return NextResponse.json(
       {
         status: 'RELEASED',
@@ -612,6 +667,7 @@ function handleFallback(
   if (approveMatch && method === 'POST') {
     const reservationId = approveMatch[1]
     memoryApprovals = memoryApprovals.filter((a) => a.reservation_id !== reservationId)
+    serverApprovalStore.resolveCheck(reservationId, 'allow')
     return NextResponse.json(
       {
         status: 'APPROVED',
@@ -749,11 +805,15 @@ async function forwardRequest(request: NextRequest, { params }: { params: { path
   if (correlationId) forwardHeaders['x-correlation-id'] = correlationId
 
   const method = request.method
+  const isAlive = await checkBankGateAlive()
+  const hasBody = method !== 'GET' && method !== 'HEAD'
+  const body = hasBody ? await request.text() : undefined
+
+  if (!isAlive) {
+    return handleFallback(cleanPath, method, body, request.nextUrl.searchParams)
+  }
 
   try {
-    const hasBody = method !== 'GET' && method !== 'HEAD'
-    const body = hasBody ? await request.text() : undefined
-
     // Attempt live fetch to real Bank Gate server (with 1.5s timeout)
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 1500)

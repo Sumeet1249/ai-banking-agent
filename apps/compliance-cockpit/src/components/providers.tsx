@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { Toaster } from 'sonner'
 import { FirstRunGuard } from '@/components/onboarding/first-run-guard'
 import { CommandPalette } from '@/components/command-palette'
+import { SaasPlanModal } from '@/components/billing/saas-plan-modal'
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -24,6 +25,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <QueryClientProvider client={queryClient}>
       <FirstRunGuard />
       <CommandPalette />
+      <SaasPlanModal />
       {children}
       <Toaster
         position="bottom-right"
