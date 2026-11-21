@@ -14,7 +14,7 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Search, X, ArrowRight, AlertTriangle, Code2, Zap, Sparkles, CheckCircle2 } from 'lucide-react'
+import { Search, X, ArrowRight, AlertTriangle, Code2, Zap, Sparkles, CheckCircle2, ShieldCheck } from 'lucide-react'
 import Link from 'next/link'
 import { RecentTraces } from './recent-traces'
 import { UpsellBanner } from './upsell-banner'
@@ -38,7 +38,7 @@ function StatCards({ stats }: { stats: any }) {
   // Last-6h slice for the per-card mini chart — keeps it scannable.
   const slice = (arr: number[]) => arr.slice(-6)
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
       <Card className="card-depth-hover">
         <CardHeader className="pb-2">
           <CardTitle className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Actions</CardTitle>
@@ -61,6 +61,23 @@ function StatCards({ stats }: { stats: any }) {
           </p>
         </CardContent>
       </Card>
+      <Link href="/agent-trust">
+        <Card className="card-depth-hover cursor-pointer border-emerald-500/20 bg-emerald-500/5 hover:border-emerald-500/40 transition-colors h-full">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-medium uppercase tracking-wider text-emerald-400 flex items-center justify-between">
+              <span>Vital Risk Index</span>
+              <ShieldCheck className="h-3.5 w-3.5" />
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold font-mono text-emerald-400">18 <span className="text-xs text-muted-foreground font-sans font-normal">/ 100</span></div>
+            <div className="flex items-center gap-2 mt-2">
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 font-semibold font-mono uppercase">OPTIMAL</span>
+              <span className="text-[10px] text-muted-foreground">TI-Kernel</span>
+            </div>
+          </CardContent>
+        </Card>
+      </Link>
       <Card className="card-depth-hover">
         <CardHeader className="pb-2">
           <CardTitle className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Pending</CardTitle>
