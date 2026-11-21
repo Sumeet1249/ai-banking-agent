@@ -69,45 +69,99 @@ export function PendingChecks() {
   const [passkeyCheck, setPasskeyCheck] = useState<any | null>(null)
   const [mockCheckOverrides, setMockCheckOverrides] = useState<any[] | null>(null)
 
-  const { data, isLoading } = useQuery({
-    enabled: !USE_MOCK,
+  const { data, isLoading, refetch } = useQuery({
     queryKey: ['pending-checks'],
     queryFn: async () => {
       const res = await fetch('/api/gateway/check/pending')
-      if (!res.ok) throw new Error('Failed')
+      if (!res.ok) throw new Error('Failed to fetch pending checks')
       return res.json()
     },
-    refetchInterval: 3_000,
+    refetchInterval: 1500,
   })
 
-  const checks: any[] = USE_MOCK ? (mockCheckOverrides ?? mockPendingChecks()) : (data?.checks ?? [])
+  // Listen for real-time approval events from Workflow Studio & Budget Pools
+  useEffect(() => {
+    const onApprovalEvent = () => {
+      refetch()
+      queryClient.invalidateQueries({ queryKey: ['pending-checks'] })
+      queryClient.invalidateQueries({ queryKey: ['stats'] })
+    }
+    window.addEventListener('aegis-approval-event', onApprovalEvent)
+    window.addEventListener('storage', onApprovalEvent)
+    return () => {
+      window.removeEventListener('aegis-approval-event', onApprovalEvent)
+      window.removeEventListener('storage', onApprovalEvent)
+    }
+  }, [refetch, queryClient])
+
+  const checks: any[] = mockCheckOverrides !== null
+    ? mockCheckOverrides
+    : (data?.checks && data.checks.length > 0 ? data.checks : (USE_MOCK ? mockPendingChecks() : []))
 
   async function decide(checkId: string, decision: 'allow' | 'block') {
     setDeciding(prev => ({ ...prev, [checkId]: decision === 'allow' ? 'allowing' : 'blocking' }))
     setExitingIds(prev => new Set(prev).add(checkId))
     try {
-      // 340ms exit collapse transition
-      await new Promise(r => setTimeout(r, 340))
-      if (USE_MOCK) {
-        setMockCheckOverrides(prev => {
-          const list = prev ?? mockPendingChecks()
-          return list.filter((c: any) => c.check_id !== checkId)
-        })
-      } else {
-        await fetch(`/api/gateway/check/${checkId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ decision, decided_by: 'dashboard-user' }),
-        })
-        queryClient.invalidateQueries({ queryKey: ['pending-checks'] })
+      const targetCheck = checks.find(c => c.check_id === checkId)
+
+      // 1. If linked to Bank Gate category reservation, approve or release reservation
+      if (targetCheck?.reservation_id) {
+        try {
+          if (decision === 'allow') {
+            await fetch(`/api/bank-gate/category-reservations/${targetCheck.reservation_id}/approve`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ passkey_verified: true, verified_at: new Date().toISOString() })
+            })
+          } else {
+            await fetch(`/api/bank-gate/category-reservations/${targetCheck.reservation_id}/release`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ reason: 'HUMAN_APPROVAL_BLOCKED' })
+            })
+          }
+        } catch (e) {
+          console.warn('Bank Gate sync error:', e)
+        }
       }
+
+      // 2. 340ms exit collapse transition
+      await new Promise(r => setTimeout(r, 340))
+
+      if (mockCheckOverrides !== null) {
+        setMockCheckOverrides(prev => (prev || []).filter((c: any) => c.check_id !== checkId))
+      }
+
+      // 3. Update gateway / local fallback
+      await fetch(`/api/gateway/check/${checkId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision, decided_by: 'dashboard-user' }),
+      }).catch(() => {})
+
+      // 4. Dispatch global event & cross-tab storage for immediate bi-directional reactive update
+      const eventDetail = {
+        check_id: checkId,
+        decision,
+        workflow_id: targetCheck?.workflow_id,
+        reservation_id: targetCheck?.reservation_id,
+        agent_id: targetCheck?.agent_id,
+      }
+      window.dispatchEvent(new CustomEvent('aegis-approval-decided', { detail: eventDetail }))
+      try {
+        localStorage.setItem('aegis-last-approval-decided', JSON.stringify({ ...eventDetail, ts: Date.now() }))
+      } catch {}
+
+      queryClient.invalidateQueries({ queryKey: ['pending-checks'] })
+      queryClient.invalidateQueries({ queryKey: ['stats'] })
+      refetch()
     } finally {
       setDeciding(prev => { const n = { ...prev }; delete n[checkId]; return n })
       setExitingIds(prev => { const n = new Set(prev); n.delete(checkId); return n })
     }
   }
 
-  if (isLoading) {
+  if (isLoading && !data) {
     return (
       <div className="space-y-3">
         {[...Array(3)].map((_, i) => (
@@ -153,7 +207,7 @@ export function PendingChecks() {
           isOpen={Boolean(passkeyCheck)}
           onClose={() => setPasskeyCheck(null)}
           agentName={friendlyAgent(passkeyCheck.agent_id)}
-          payee={passkeyCheck.arguments?.payee || passkeyCheck.arguments?.destination || 'Requested Payee'}
+          payee={passkeyCheck.arguments?.payee || passkeyCheck.arguments?.destination || passkeyCheck.arguments?.merchant || 'Requested Payee'}
           amountPaise={Number(passkeyCheck.arguments?.amount_paise || (passkeyCheck.arguments?.amount ? Number(passkeyCheck.arguments.amount) * 100 : 485000))}
           thresholdPaise={200000}
           reason={plainReason(passkeyCheck)}
@@ -223,7 +277,24 @@ function HeldCallCard({ check, loading, isExiting, onTriggerPasskey, onDecide }:
       <header className="flex items-start gap-3 px-5 pt-4 pb-3">
         <ToolIcon name={act.iconKey ?? check.tool_name} size={32} />
         <div className="min-w-0 flex-1">
-          <p className="text-[15px] font-semibold leading-snug" style={{ color: TEXT }}>{act.text}</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-[15px] font-semibold leading-snug" style={{ color: TEXT }}>{act.text}</p>
+            {check.source === 'workflow_studio' && (
+              <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-violet-500/10 text-violet-400 border border-violet-500/20">
+                Workflow Studio · Step 4 Gate
+              </span>
+            )}
+            {check.source === 'budget_simulator' && (
+              <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                Budget Pools · Invariant I1 Step-Up
+              </span>
+            )}
+            {check.source === 'bank_gate' && (
+              <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                Bank Gate :4000 · Sovereign Hold
+              </span>
+            )}
+          </div>
           <p className="text-[12px] mt-0.5" style={{ color: MUTED }}>
             {friendlyAgent(check.agent_id)} wants to run <span className="font-mono">{check.tool_name}</span>
           </p>

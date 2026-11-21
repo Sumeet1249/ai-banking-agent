@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { gw, getSessionToken, clearSessionToken } from '@/lib/gateway'
-import { LogIn, LogOut, UserRound, Loader2 } from 'lucide-react'
+import { getActiveLocalUser, clearActiveLocalUser, ActiveUserProfile } from '@/lib/local-auth'
+import { LogIn, LogOut, UserRound, Loader2, ShieldCheck } from 'lucide-react'
 
 const BORDER = 'hsl(var(--border))'
 const TEXT   = 'hsl(var(--foreground))'
@@ -20,53 +21,89 @@ interface MeUser {
 }
 
 /**
- * Sidebar account widget. Three states:
- *   loading    — first paint, /auth/me still in flight
- *   signed-in  — show email + role + sign-out button
- *   signed-out — show "Sign in" link (no hard redirect — the Cockpit
- *                also works via API key, so SSO is opt-in)
+ * Sidebar account widget.
+ * Seamlessly integrates local-auth profiles with backend SSO /auth/me fallback.
  */
 export function AccountWidget() {
   const router = useRouter()
   const [state, setState] = useState<'loading' | 'in' | 'out'>('in')
-  const [user, setUser]   = useState<MeUser | null>({
-    id: 'usr_admin',
-    email: 'admin@agentguard.bank',
-    name: 'Security Admin',
-    role: 'Security Admin',
-    provider: 'bank-sso',
-  })
+  const [user, setUser]   = useState<MeUser | null>(null)
   const [busy, setBusy]   = useState(false)
 
-  useEffect(() => {
-    if (!getSessionToken()) {
-      // Default to Security Admin in enterprise cockpit demo mode
+  const syncUser = async () => {
+    // 1. Prefer local active user profile if available
+    const localUser = getActiveLocalUser()
+    if (localUser) {
+      setUser({
+        id: localUser.id,
+        email: localUser.email,
+        name: localUser.name,
+        role: localUser.role,
+        provider: localUser.provider,
+      })
       setState('in')
       return
     }
-    (async () => {
+
+    // 2. If session token exists, query backend gateway /auth/me
+    if (getSessionToken()) {
       try {
         const res = await gw('auth/me')
         if (res.ok) {
           const data = await res.json()
-          setUser(data.user)
-          setState('in')
+          if (data.user) {
+            setUser(data.user)
+            setState('in')
+            return
+          }
         }
-      } catch {
-        // Fallback to enterprise operator
+      } catch {}
+    }
+
+    // 3. Fallback default operator demo profile
+    const defaultUser: MeUser = {
+      id: 'usr_admin',
+      email: 'admin@agentguard.bank',
+      name: 'Security Admin',
+      role: 'Security Admin',
+      provider: 'local-vault',
+    }
+    setUser(defaultUser)
+    setState('in')
+  }
+
+  useEffect(() => {
+    syncUser()
+
+    const onAuthChanged = (e: any) => {
+      if (e.detail) {
+        setUser({
+          id: e.detail.id,
+          email: e.detail.email,
+          name: e.detail.name,
+          role: e.detail.role,
+          provider: e.detail.provider,
+        })
         setState('in')
+      } else {
+        syncUser()
       }
-    })()
+    }
+
+    window.addEventListener('aegis-auth-changed', onAuthChanged)
+    window.addEventListener('storage', syncUser)
+    return () => {
+      window.removeEventListener('aegis-auth-changed', onAuthChanged)
+      window.removeEventListener('storage', syncUser)
+    }
   }, [])
 
   async function handleSignOut() {
     setBusy(true)
     try {
-      await gw('auth/logout', { method: 'POST' })
-    } catch {
-      // Even if the server call fails, we want the browser-side token
-      // gone — the gateway will reject it on next use anyway.
-    }
+      await gw('auth/logout', { method: 'POST' }).catch(() => {})
+    } catch {}
+    clearActiveLocalUser()
     clearSessionToken()
     setUser(null)
     setState('out')

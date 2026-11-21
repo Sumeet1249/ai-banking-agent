@@ -12,6 +12,89 @@ const DEMO_MODE =
   process.env['NEXT_PUBLIC_DEMO_MODE'] === 'true' ||
   process.env['DEMO_MODE'] === 'true';
 
+let sharedPendingChecks: any[] = [
+  {
+    check_id: 'chk-9F2KqRxN-001',
+    agent_id: 'agent-data-pipeline',
+    agent_name: 'Data Pipeline',
+    tool_name: 'http_post',
+    category: 'network',
+    risk_level: 'HIGH',
+    risk: 'HIGH',
+    arguments: {
+      url: 'https://api.razorpay.com/v1/payouts',
+      amount: 24500000,
+      currency: 'inr',
+      destination: 'hdfc_payout_vpa',
+      payee: 'HDFC Payout VPA',
+    },
+    violations: ['Transfer ≥ ₹1,00,000 requires customer Step-Up Passkey per `rbi-master-direction-payments` policy.'],
+    created_at: new Date(Date.now() - 38000).toISOString(),
+    source: 'gateway',
+  },
+  {
+    check_id: 'chk-3M8tPzY7-002',
+    agent_id: 'agent-coding-asst',
+    agent_name: 'Coding Asst',
+    tool_name: 'shell',
+    category: 'shell',
+    risk_level: 'CRITICAL',
+    risk: 'CRITICAL',
+    arguments: { command: 'kubectl delete deployment payments-api -n prod' },
+    violations: ['`kubectl delete` on `payments-api` (prod) blocked — last-known revenue path. Requires SRE on-call approval.'],
+    created_at: new Date(Date.now() - 124000).toISOString(),
+    source: 'gateway',
+  },
+  {
+    check_id: 'chk-K7nQwL2X-003',
+    agent_id: 'agent-customer-support',
+    agent_name: 'Customer Support Bot',
+    tool_name: 'send_email',
+    category: 'communication',
+    risk_level: 'MEDIUM',
+    risk: 'MEDIUM',
+    arguments: {
+      to: 'all-customers@acme.io',
+      subject: 'Service maintenance window',
+      body: '…broadcast to 14,210 recipients…',
+    },
+    violations: ['Bulk-send (≥1k recipients) triggers human review per `broadcast-blast` policy.'],
+    created_at: new Date(Date.now() - 287000).toISOString(),
+    source: 'gateway',
+  },
+  {
+    check_id: 'chk-D1vBhJ5R-004',
+    agent_id: 'agent-data-pipeline',
+    agent_name: 'Data Pipeline',
+    tool_name: 'http_post',
+    category: 'network',
+    risk_level: 'HIGH',
+    risk: 'HIGH',
+    arguments: {
+      url: 'https://api.openai.com/v1/files',
+      method: 'POST',
+      filename: 'customer_export_2026q2.jsonl',
+      size_mb: 84,
+    },
+    violations: ['Bulk export (84 MB) outbound to external LLM provider API violates Data Sovereign Rule DS-2.'],
+    created_at: new Date(Date.now() - 410000).toISOString(),
+    source: 'gateway',
+  },
+  {
+    check_id: 'chk-5X9mNp8L-005',
+    agent_id: 'agent-security-bot',
+    agent_name: 'Security Admin Bot',
+    tool_name: 'sql_execute',
+    category: 'database',
+    risk_level: 'CRITICAL',
+    risk: 'CRITICAL',
+    arguments: { query: "UPDATE users SET role = 'admin' WHERE email = 'contractor@external-vendor.com'" },
+    violations: ['Privilege escalation query directly modifying `role` column requires dual-authorization.'],
+    created_at: new Date(Date.now() - 560000).toISOString(),
+    source: 'gateway',
+  },
+]
+
 /**
  * Best-effort empty-shape reply for known gateway endpoints.
  */
@@ -21,7 +104,14 @@ function demoEmptyShape(path: string): unknown {
   if (path.startsWith('policies')) return [];
   if (path.startsWith('violations')) return { violations: [] };
   if (path.startsWith('approvals')) return { approvals: [] };
-  if (path.startsWith('stats')) return {};
+  if (path === 'check/pending' || path.startsWith('check/pending')) return { checks: sharedPendingChecks };
+  if (path === 'stats' || path.startsWith('stats?')) return {
+    totalTraces: 516,
+    pendingChecks: sharedPendingChecks.length,
+    violations24h: 12,
+    activeAgents: 4,
+    tracesTrend: 12,
+  };
   if (path.startsWith('sessions')) return { sessions: [] };
   if (path.startsWith('audit-log')) return { items: [] };
   if (path.startsWith('compliance')) return { rows: [], mappings: [] };
@@ -103,6 +193,18 @@ function handleLocalFallback(
 ): NextResponse {
   try {
     if (method === 'GET') {
+      if (path === 'check/pending' || path.startsWith('check/pending')) {
+        return NextResponse.json({ checks: sharedPendingChecks })
+      }
+      if (path === 'stats' || path.startsWith('stats?')) {
+        return NextResponse.json({
+          totalTraces: 516,
+          pendingChecks: sharedPendingChecks.length,
+          violations24h: 12,
+          activeAgents: 4,
+          tracesTrend: 12,
+        })
+      }
       if (path === 'agents' || path.startsWith('agents?')) {
         const status = searchParams.get('status') || undefined
         const includeDeprecated = searchParams.get('include_deprecated') === '1'
@@ -138,6 +240,27 @@ function handleLocalFallback(
 
     if (method === 'POST') {
       const parsed = bodyText ? JSON.parse(bodyText) : {}
+      if (path === 'check' || path === 'check/pending' || path.startsWith('check')) {
+        const checkId = parsed.check_id || `chk-${Math.random().toString(36).substring(2, 9)}`
+        const newCheck = {
+          check_id: checkId,
+          agent_id: parsed.agent_id || 'agent-policy',
+          agent_name: parsed.agent_name || 'Policy Engine',
+          tool_name: parsed.tool_name || 'payment_execute',
+          category: parsed.category || 'network',
+          risk_level: parsed.risk_level || parsed.risk || 'HIGH',
+          risk: parsed.risk || parsed.risk_level || 'HIGH',
+          workflow_id: parsed.workflow_id,
+          reservation_id: parsed.reservation_id,
+          source: parsed.source || 'cockpit',
+          arguments: parsed.arguments || {},
+          violations: parsed.violations || ['Action held for human dual-authorization.'],
+          created_at: parsed.created_at || new Date().toISOString(),
+        }
+        // Avoid duplicate check_id
+        sharedPendingChecks = [newCheck, ...sharedPendingChecks.filter(c => c.check_id !== checkId)]
+        return NextResponse.json({ ok: true, check: newCheck, check_id: checkId }, { status: 201 })
+      }
       if (path === 'agents') {
         const res = serverAgentStore.createAgent(parsed)
         return NextResponse.json(
@@ -159,6 +282,19 @@ function handleLocalFallback(
     }
 
     if (method === 'PATCH') {
+      if (path.startsWith('check/')) {
+        const checkId = path.replace('check/', '')
+        const parsed = bodyText ? JSON.parse(bodyText) : {}
+        const prevCount = sharedPendingChecks.length
+        sharedPendingChecks = sharedPendingChecks.filter(c => c.check_id !== checkId)
+        return NextResponse.json({
+          ok: true,
+          check_id: checkId,
+          decision: parsed.decision || 'allow',
+          removed: prevCount !== sharedPendingChecks.length,
+          remaining: sharedPendingChecks.length,
+        })
+      }
       if (path.startsWith('agents/')) {
         const id = path.replace('agents/', '')
         const parsed = bodyText ? JSON.parse(bodyText) : {}
@@ -178,6 +314,11 @@ function handleLocalFallback(
     }
 
     if (method === 'DELETE') {
+      if (path.startsWith('check/')) {
+        const checkId = path.replace('check/', '')
+        sharedPendingChecks = sharedPendingChecks.filter(c => c.check_id !== checkId)
+        return NextResponse.json({ ok: true, check_id: checkId })
+      }
       if (path.startsWith('agents/')) {
         const id = path.replace('agents/', '')
         const ok = serverAgentStore.deleteAgent(id)

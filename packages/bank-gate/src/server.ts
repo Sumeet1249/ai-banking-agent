@@ -113,7 +113,7 @@ export class BankGateApp {
     this.app.use((_req: Request, res: Response, next: NextFunction) => {
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-tenant-id, x-customer-ref, x-correlation-id, x-request-id');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-tenant-id, x-customer-ref, x-correlation-id, x-request-id, x-api-key');
       if (_req.method === 'OPTIONS') {
         res.sendStatus(204);
         return;
@@ -252,8 +252,10 @@ export class BankGateApp {
           res.status(400).json({ error: 'Missing tenant_id or customer_ref header/body' });
           return;
         }
+        const poolId = req.body.pool_id || `pool_${(req.body.category_id || 'cat').toString().toLowerCase()}_${Date.now().toString(36)}`;
         const pool = this.categoryBudget.createPool({
           ...req.body,
+          pool_id: poolId,
           tenant_id: tenantId,
           customer_ref: customerRef,
         });

@@ -179,8 +179,49 @@ export function AutonomousWorkflowStudio() {
     'idle' | 'running' | 'waiting_approval' | 'approved' | 'denied' | 'held' | 'completed'
   >('idle')
   const [passkeyModalOpen, setPasskeyModalOpen] = useState<boolean>(false)
+  const [currentCheckId, setCurrentCheckId] = useState<string | null>(null)
   const [executionReceipt, setExecutionReceipt] = useState<any | null>(null)
   const [activeTab, setActiveTab] = useState<'topology' | 'merkle_tree' | 'audit_proof' | 'backend_status'>('topology')
+
+  // Real-time synchronization with /approvals console
+  useEffect(() => {
+    const handleApprovalDecided = (e: any) => {
+      const { decision } = e.detail || {}
+      if (workflowStatus === 'waiting_approval') {
+        if (decision === 'allow') {
+          toast.success('Passkey approval received from Approvals Console! Advancing pipeline...')
+          handlePasskeySuccess()
+        } else if (decision === 'block' || decision === 'deny') {
+          toast.error('Transaction blocked from Approvals Console.')
+          handleHumanDecision('deny')
+        }
+      }
+    }
+
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'aegis-last-approval-decided' && e.newValue) {
+        try {
+          const data = JSON.parse(e.newValue)
+          if (workflowStatus === 'waiting_approval') {
+            if (data.decision === 'allow') {
+              toast.success('Passkey approval received from Approvals Console! Advancing pipeline...')
+              handlePasskeySuccess()
+            } else if (data.decision === 'block' || data.decision === 'deny') {
+              toast.error('Transaction blocked from Approvals Console.')
+              handleHumanDecision('deny')
+            }
+          }
+        } catch {}
+      }
+    }
+
+    window.addEventListener('aegis-approval-decided', handleApprovalDecided)
+    window.addEventListener('storage', handleStorage)
+    return () => {
+      window.removeEventListener('aegis-approval-decided', handleApprovalDecided)
+      window.removeEventListener('storage', handleStorage)
+    }
+  }, [workflowStatus, amountRupees, payee, currentCheckId])
 
   // Synchronize initial selection
   useEffect(() => {
@@ -308,15 +349,55 @@ export function AutonomousWorkflowStudio() {
 
             setTimeout(() => {
               if (isHigh) {
-                // Pause for human approval
+                // Pause for human approval & broadcast to /approvals
+                const checkId = `chk-wf-${Date.now().toString(36)}`
+                setCurrentCheckId(checkId)
+
+                const pendingPayload = {
+                  check_id: checkId,
+                  agent_id: 'agent-policy',
+                  agent_name: 'Policy Decision Engine',
+                  tool_name: 'payment_execute',
+                  category: 'network',
+                  risk_level: 'HIGH',
+                  risk: 'HIGH',
+                  workflow_id: `WF-${Date.now().toString().slice(-6)}`,
+                  source: 'workflow_studio',
+                  arguments: {
+                    url: 'https://bank-gate.internal/api/v1/transactions/authorize',
+                    amount: amt,
+                    amount_paise: amt * 100,
+                    payee: payeeTarget,
+                    destination: payeeTarget,
+                    policy: 'rbi-master-direction-payments',
+                  },
+                  violations: [
+                    `Transfer of ₹${amt.toLocaleString('en-IN')} to ${payeeTarget} requires customer Step-Up Passkey per \`rbi-master-direction-payments\` policy.`
+                  ],
+                  created_at: new Date().toISOString(),
+                }
+
+                // Register with backend / local gateway fallback
+                fetch('/api/gateway/check', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(pendingPayload)
+                }).catch(() => {})
+
+                // Real-time broadcast
+                window.dispatchEvent(new CustomEvent('aegis-approval-event', { detail: pendingPayload }))
+                try {
+                  localStorage.setItem('aegis-pending-check-latest', JSON.stringify(pendingPayload))
+                } catch {}
+
                 setAgents(prev => prev.map((a, idx) => idx === 3 ? {
                   ...a,
                   status: 'completed',
                   decision: 'ASK',
                   durationMs: 11,
                   summary: 'Decision ASK: In-scope transaction requires Customer Step-Up Passkey verification.',
-                  evidence: ['Policy: rbi-master-direction-payments', 'Routing: Hold for FIDO2 WebAuthn biometric passkey'],
-                  outputContext: { route: 'AWAITING_HUMAN_APPROVAL', permit_held: true },
+                  evidence: ['Policy: rbi-master-direction-payments', 'Routing: Hold for FIDO2 WebAuthn biometric passkey', `Check-ID: ${checkId}`],
+                  outputContext: { route: 'AWAITING_HUMAN_APPROVAL', permit_held: true, check_id: checkId },
                   simpleExplanation: `Deterministic rules dictate that AI cannot self-approve. The workflow is paused awaiting your Passkey.`
                 } : idx === 4 ? {
                   ...a,
@@ -326,7 +407,7 @@ export function AutonomousWorkflowStudio() {
                 } : a))
                 setActiveStepIndex(4)
                 setWorkflowStatus('waiting_approval')
-                toast.warning('Transaction requires Human-in-the-Loop approval (ASK).')
+                toast.warning('Transaction requires Human-in-the-Loop approval (ASK). Dispatched to /approvals!')
               } else {
                 // Autonomous execution path
                 setAgents(prev => prev.map((a, idx) => idx === 3 ? {
@@ -441,6 +522,18 @@ export function AutonomousWorkflowStudio() {
     if (decision === 'accept') {
       setPasskeyModalOpen(true)
     } else if (decision === 'deny') {
+      if (currentCheckId) {
+        fetch(`/api/gateway/check/${currentCheckId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ decision: 'block', decided_by: 'workflow-studio' })
+        }).catch(() => {})
+        const detail = { check_id: currentCheckId, decision: 'block' }
+        window.dispatchEvent(new CustomEvent('aegis-approval-decided', { detail }))
+        try {
+          localStorage.setItem('aegis-last-approval-decided', JSON.stringify({ ...detail, ts: Date.now() }))
+        } catch {}
+      }
       setAgents(prev => prev.map((a, idx) => idx === 4 ? {
         ...a,
         status: 'blocked',
@@ -463,6 +556,18 @@ export function AutonomousWorkflowStudio() {
 
   const handlePasskeySuccess = () => {
     setPasskeyModalOpen(false)
+    if (currentCheckId) {
+      fetch(`/api/gateway/check/${currentCheckId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision: 'allow', decided_by: 'workflow-studio' })
+      }).catch(() => {})
+      const detail = { check_id: currentCheckId, decision: 'allow' }
+      window.dispatchEvent(new CustomEvent('aegis-approval-decided', { detail }))
+      try {
+        localStorage.setItem('aegis-last-approval-decided', JSON.stringify({ ...detail, ts: Date.now() }))
+      } catch {}
+    }
     setAgents(prev => prev.map((a, idx) => idx === 4 ? {
       ...a,
       status: 'completed',
@@ -498,10 +603,10 @@ export function AutonomousWorkflowStudio() {
             isGatewayHalted
               ? "border-rose-500/60 bg-rose-500/5 shadow-[0_0_15px_rgba(244,63,94,0.12)]"
               : isGatewayPaused
-              ? "border-amber-500/60 bg-amber-500/5 shadow-[0_0_15px_rgba(245,158,11,0.12)]"
-              : isGatewayActive
-              ? "border-primary shadow-[0_0_18px_rgba(59,130,246,0.18)] ring-1 ring-primary/40"
-              : "border-border/80"
+                ? "border-amber-500/60 bg-amber-500/5 shadow-[0_0_15px_rgba(245,158,11,0.12)]"
+                : isGatewayActive
+                  ? "border-primary shadow-[0_0_18px_rgba(59,130,246,0.18)] ring-1 ring-primary/40"
+                  : "border-border/80"
           )}
         >
           <div className="flex items-start justify-between gap-3">
@@ -511,10 +616,10 @@ export function AutonomousWorkflowStudio() {
                 isGatewayHalted
                   ? "bg-rose-500/10 border-rose-500/30 text-rose-500"
                   : isGatewayPaused
-                  ? "bg-amber-500/10 border-amber-500/30 text-amber-500"
-                  : isGatewayActive
-                  ? "bg-primary/10 border-primary/30 text-primary"
-                  : "bg-secondary border-border/80 text-foreground"
+                    ? "bg-amber-500/10 border-amber-500/30 text-amber-500"
+                    : isGatewayActive
+                      ? "bg-primary/10 border-primary/30 text-primary"
+                      : "bg-secondary border-border/80 text-foreground"
               )}>
                 <Server className="h-4 w-4" strokeWidth={1.6} />
               </div>
@@ -537,10 +642,10 @@ export function AutonomousWorkflowStudio() {
                   isGatewayHalted
                     ? "bg-rose-500/15 text-rose-500 border-rose-500/30"
                     : isGatewayPaused
-                    ? "bg-amber-500/15 text-amber-500 border-amber-500/30 animate-pulse"
-                    : isGatewayActive
-                    ? "bg-primary/15 text-primary border-primary/30 animate-pulse"
-                    : "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+                      ? "bg-amber-500/15 text-amber-500 border-amber-500/30 animate-pulse"
+                      : isGatewayActive
+                        ? "bg-primary/15 text-primary border-primary/30 animate-pulse"
+                        : "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
                 )}
               >
                 <span
@@ -549,19 +654,19 @@ export function AutonomousWorkflowStudio() {
                     isGatewayHalted
                       ? "bg-rose-500"
                       : isGatewayPaused
-                      ? "bg-amber-500 animate-ping"
-                      : isGatewayActive
-                      ? "bg-primary animate-ping"
-                      : "bg-emerald-500"
+                        ? "bg-amber-500 animate-ping"
+                        : isGatewayActive
+                          ? "bg-primary animate-ping"
+                          : "bg-emerald-500"
                   )}
                 />
                 {isGatewayHalted
                   ? "HALTED · I2 DENY"
                   : isGatewayPaused
-                  ? "PAUSED · STEP-UP"
-                  : isGatewayActive
-                  ? "FILTERING (01–05)"
-                  : "ONLINE"}
+                    ? "PAUSED · STEP-UP"
+                    : isGatewayActive
+                      ? "FILTERING (01–05)"
+                      : "ONLINE"}
               </span>
               <span className="text-[10px] font-mono tabular-nums text-muted-foreground">
                 latency <strong className="text-foreground">{latencies.gateway}ms</strong>
@@ -577,8 +682,8 @@ export function AutonomousWorkflowStudio() {
             isBankGateHalted
               ? "border-rose-500/60 bg-rose-500/5 shadow-[0_0_15px_rgba(244,63,94,0.12)]"
               : isBankGateActive
-              ? "border-emerald-500 shadow-[0_0_18px_rgba(16,185,129,0.18)] ring-1 ring-emerald-500/40"
-              : "border-border/80"
+                ? "border-emerald-500 shadow-[0_0_18px_rgba(16,185,129,0.18)] ring-1 ring-emerald-500/40"
+                : "border-border/80"
           )}
         >
           <div className="flex items-start justify-between gap-3">
@@ -588,8 +693,8 @@ export function AutonomousWorkflowStudio() {
                 isBankGateHalted
                   ? "bg-rose-500/10 border-rose-500/30 text-rose-500"
                   : isBankGateActive
-                  ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-500"
-                  : "bg-secondary border-border/80 text-foreground"
+                    ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-500"
+                    : "bg-secondary border-border/80 text-foreground"
               )}>
                 <ShieldCheck className="h-4 w-4 text-emerald-500" strokeWidth={1.6} />
               </div>
@@ -612,8 +717,8 @@ export function AutonomousWorkflowStudio() {
                   isBankGateHalted
                     ? "bg-rose-500/15 text-rose-500 border-rose-500/30"
                     : isBankGateActive
-                    ? "bg-emerald-500/15 text-emerald-500 border-emerald-500/30 animate-pulse"
-                    : "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+                      ? "bg-emerald-500/15 text-emerald-500 border-emerald-500/30 animate-pulse"
+                      : "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
                 )}
               >
                 <span
@@ -622,15 +727,15 @@ export function AutonomousWorkflowStudio() {
                     isBankGateHalted
                       ? "bg-rose-500"
                       : isBankGateActive
-                      ? "bg-emerald-500 animate-ping"
-                      : "bg-emerald-500"
+                        ? "bg-emerald-500 animate-ping"
+                        : "bg-emerald-500"
                   )}
                 />
                 {isBankGateHalted
                   ? "REJECTED"
                   : isBankGateActive
-                  ? "AUTHORIZING (06–07)"
-                  : "ONLINE"}
+                    ? "AUTHORIZING (06–07)"
+                    : "ONLINE"}
               </span>
               <span className="text-[10px] font-mono tabular-nums text-muted-foreground">
                 latency <strong className="text-foreground">{latencies.bankGate}ms</strong>
@@ -646,8 +751,8 @@ export function AutonomousWorkflowStudio() {
             isWitnessHalted
               ? "border-rose-500/60 bg-rose-500/5 shadow-[0_0_15px_rgba(244,63,94,0.12)]"
               : isWitnessActive
-              ? "border-indigo-500 shadow-[0_0_18px_rgba(99,102,241,0.18)] ring-1 ring-indigo-500/40"
-              : "border-border/80"
+                ? "border-indigo-500 shadow-[0_0_18px_rgba(99,102,241,0.18)] ring-1 ring-indigo-500/40"
+                : "border-border/80"
           )}
         >
           <div className="flex items-start justify-between gap-3">
@@ -657,8 +762,8 @@ export function AutonomousWorkflowStudio() {
                 isWitnessHalted
                   ? "bg-rose-500/10 border-rose-500/30 text-rose-500"
                   : isWitnessActive
-                  ? "bg-indigo-500/10 border-indigo-500/30 text-indigo-500"
-                  : "bg-secondary border-border/80 text-foreground"
+                    ? "bg-indigo-500/10 border-indigo-500/30 text-indigo-500"
+                    : "bg-secondary border-border/80 text-foreground"
               )}>
                 <Binary className="h-4 w-4 text-indigo-500" strokeWidth={1.6} />
               </div>
@@ -681,8 +786,8 @@ export function AutonomousWorkflowStudio() {
                   isWitnessHalted
                     ? "bg-rose-500/15 text-rose-500 border-rose-500/30"
                     : isWitnessActive
-                    ? "bg-indigo-500/15 text-indigo-500 border-indigo-500/30 animate-pulse"
-                    : "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+                      ? "bg-indigo-500/15 text-indigo-500 border-indigo-500/30 animate-pulse"
+                      : "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
                 )}
               >
                 <span
@@ -691,15 +796,15 @@ export function AutonomousWorkflowStudio() {
                     isWitnessHalted
                       ? "bg-rose-500"
                       : isWitnessActive
-                      ? "bg-indigo-500 animate-ping"
-                      : "bg-emerald-500"
+                        ? "bg-indigo-500 animate-ping"
+                        : "bg-emerald-500"
                   )}
                 />
                 {isWitnessHalted
                   ? "ROLLBACK"
                   : isWitnessActive
-                  ? "CO-SIGNING (08)"
-                  : "ONLINE"}
+                    ? "CO-SIGNING (08)"
+                    : "ONLINE"}
               </span>
               <span className="text-[10px] font-mono tabular-nums text-muted-foreground">
                 latency <strong className="text-foreground">{latencies.witness}ms</strong>
@@ -994,8 +1099,8 @@ export function AutonomousWorkflowStudio() {
                 workflowStatus === 'denied'
                   ? "bg-rose-500"
                   : workflowStatus === 'waiting_approval'
-                  ? "bg-amber-500"
-                  : "bg-gradient-to-r from-primary via-emerald-500 to-indigo-500"
+                    ? "bg-amber-500"
+                    : "bg-gradient-to-r from-primary via-emerald-500 to-indigo-500"
               )}
               style={{
                 width: activeStepIndex >= 0
@@ -1102,14 +1207,24 @@ export function AutonomousWorkflowStudio() {
                 <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500/20 text-amber-500 font-bold border border-amber-500/30">
                   RBI Master Direction
                 </span>
+                <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-violet-500/20 text-violet-400 font-bold border border-violet-500/30">
+                  Synced to /approvals
+                </span>
               </div>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Transfer of <strong className="text-foreground">₹{amountRupees.toLocaleString('en-IN')}</strong> to <span className="font-mono text-foreground">{payee}</span> requires biometric authentication.
+                Transfer of <strong className="text-foreground">₹{amountRupees.toLocaleString('en-IN')}</strong> to <span className="font-mono text-foreground">{payee}</span> requires biometric authentication. Deciding here or in the Approvals Console syncs bidirectionally.
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5 shrink-0">
+          <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+            <Link
+              href="/approvals"
+              className="px-3.5 py-2 rounded-xl border border-primary/40 bg-primary/10 hover:bg-primary/20 text-xs font-semibold text-primary transition flex items-center gap-1.5"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              Open in /approvals
+            </Link>
             <button
               onClick={() => handleHumanDecision('hold')}
               className="px-3.5 py-2 rounded-xl border border-border bg-secondary hover:bg-muted text-xs font-semibold text-foreground transition"
