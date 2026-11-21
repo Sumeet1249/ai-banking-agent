@@ -1,3 +1,4 @@
+
 // apps/compliance-cockpit/src/lib/server-agent-store.ts
 import { mockAgents, MockAgent } from './mock-traces'
 import { AgentPurposeId, PURPOSE_CATALOG } from './biller-catalog'
@@ -168,7 +169,7 @@ function notify(event: StoreEvent) {
   store.listeners.forEach((listener) => {
     try {
       listener(event)
-    } catch {}
+    } catch { }
   })
 }
 
