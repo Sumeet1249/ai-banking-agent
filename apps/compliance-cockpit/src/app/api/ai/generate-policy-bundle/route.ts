@@ -199,6 +199,24 @@ interface LLMCallOptions {
 }
 
 async function callLLM(opts: LLMCallOptions): Promise<string> {
+  if (opts.provider === 'gemini') {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${opts.apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [
+          { role: 'user', parts: [{ text: `${opts.systemPrompt}\n\n${opts.userPrompt}` }] }
+        ],
+        generationConfig: {
+          temperature: opts.temperature ?? 0.2,
+          responseMimeType: 'application/json'
+        }
+      })
+    })
+    if (!res.ok) throw new Error(`Gemini API error: ${await res.text()}`)
+    const data = await res.json()
+    return data.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+  }
   if (opts.provider === 'anthropic') {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -270,9 +288,28 @@ function evaluateRaw(raw: string): Candidate | null {
 
 export async function POST(request: NextRequest) {
   try {
-    const { description, context, provider, apiKey } = await request.json()
+    const body = await request.json()
+    const description = body?.description
+    const context = body?.context
+    let provider = body?.provider
+    let apiKey = body?.apiKey?.trim()
+
     if (!description?.trim()) return NextResponse.json({ error: 'description is required' }, { status: 400 })
-    if (!apiKey?.trim())      return NextResponse.json({ error: 'apiKey is required — configure it in Settings → AI Assistant' }, { status: 400 })
+
+    if (!apiKey) {
+      if (process.env.GEMINI_API_KEY) {
+        provider = 'gemini'
+        apiKey = process.env.GEMINI_API_KEY
+      } else if (process.env.OPENAI_API_KEY) {
+        provider = 'openai'
+        apiKey = process.env.OPENAI_API_KEY
+      } else if (process.env.ANTHROPIC_API_KEY) {
+        provider = 'anthropic'
+        apiKey = process.env.ANTHROPIC_API_KEY
+      }
+    }
+
+    if (!apiKey) return NextResponse.json({ error: 'apiKey is required — configure GEMINI_API_KEY in .env or Settings → AI Assistant' }, { status: 400 })
 
     // Workflow gap analysis (unchanged)
     const toolInventory: ToolInventoryEntry[] = Array.isArray(context?.tool_inventory)

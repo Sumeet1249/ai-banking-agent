@@ -43,7 +43,7 @@ export function createTrustServer(dbPath = DB_PATH) {
   const forensics = new IncidentForensicsService(store);
 
   // Health
-  app.get('/api/trust/health', (req: Request, res: Response) => {
+  const healthHandler = (req: Request, res: Response) => {
     res.json({
       status: 'UP',
       service: 'AgentGuard Trust Intelligence Engine',
@@ -52,7 +52,9 @@ export function createTrustServer(dbPath = DB_PATH) {
       timestamp: Date.now(),
       emergency_stop_active: QuarantineManager.isEmergencyStopActive(),
     });
-  });
+  };
+  app.get('/health', healthHandler);
+  app.get('/api/trust/health', healthHandler);
 
   // Overview Metrics
   app.get('/api/trust/overview', (req: Request, res: Response) => {
