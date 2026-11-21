@@ -39,7 +39,7 @@ function getRouteConfig(pathname: string): RouteConfig {
   return { primary: 0x6366f1, secondary: 0x38bdf8, camZ: 27 }
 }
 
-// ── CUSTOM GLSL SHADERS FOR TOPOGRAPHIC WAVE & POINT MATRIX ──────────────────
+// ── CUSTOM GLSL SHADERS FOR SUBTLE, ELEGANT TOPOGRAPHIC MATRIX ──────────────
 
 const terrainVertexShader = `
 uniform float uTime;
@@ -55,43 +55,29 @@ varying float vDistFromCenter;
 void main() {
   vec3 pos = position;
 
-  // Calm organic dual-sine topographic swells
-  float wave = sin(pos.x * 0.082 + uTime * 0.65) * 0.72 +
-               cos(pos.y * 0.105 + uTime * 0.52) * 0.58 +
-               sin((pos.x + pos.y) * 0.048 + uTime * 0.38) * 0.32;
+  // Calm, serene organic topographic swells (ultra-slow, low amplitude)
+  float wave = sin(pos.x * 0.042 + uTime * 0.16) * 0.24 +
+               cos(pos.y * 0.048 + uTime * 0.12) * 0.18 +
+               sin((pos.x + pos.y) * 0.028 + uTime * 0.09) * 0.10;
 
-  // Real-time Gaussian magnetic lift + ripple directly beneath uMouse3D
+  // Minimal, smooth ambient elevation beneath cursor (subtle 0.38 unit lift)
   float dMouse = length(pos.xy - uMouse3D.xy);
-  float radius = 9.5;
-  float magneticLift = exp(-(dMouse * dMouse) / (2.0 * radius * radius)) * 2.85;
-  float ripple = sin(dMouse * 0.88 - uTime * 2.8) * exp(-dMouse * 0.16) * 0.45;
+  float radius = 10.5;
+  float magneticLift = exp(-(dMouse * dMouse) / (2.0 * radius * radius)) * 0.38;
 
-  // Interactive concentric click shockwave expanding outward over 1.6s
-  float elapsed = uTime - uClickTime;
-  float shockwave = 0.0;
-  if (elapsed > 0.0 && elapsed < 1.6) {
-    float waveSpeed = 22.0;
-    float currentRadius = elapsed * waveSpeed;
-    float dClick = length(pos.xy - uClickPos.xy);
-    float pulse = sin((dClick - currentRadius) * 0.85) *
-                  exp(-abs(dClick - currentRadius) * 0.42) *
-                  exp(-elapsed * 2.0) * 1.8;
-    shockwave = pulse;
-  }
-
-  pos.z += wave + magneticLift + ripple + shockwave;
+  pos.z += wave + magneticLift;
 
   vPosition = pos;
   vElevation = pos.z;
-  vMouseProximity = clamp(1.0 - dMouse / 11.5, 0.0, 1.0);
+  vMouseProximity = clamp(1.0 - dMouse / 12.0, 0.0, 1.0);
   vDistFromCenter = length(pos.xy) / 52.0;
 
   vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
   gl_Position = projectionMatrix * mvPosition;
 
-  // Point size attenuation with proximity boost
-  gl_PointSize = (1.9 + vMouseProximity * 2.6 + max(0.0, vElevation) * 0.55) * (180.0 / -mvPosition.z);
-  gl_PointSize = clamp(gl_PointSize, 1.0, 14.0);
+  // Subtle micro-point sizing (crisp, elegant, non-bloated)
+  gl_PointSize = (1.1 + vMouseProximity * 0.45) * (130.0 / -mvPosition.z);
+  gl_PointSize = clamp(gl_PointSize, 1.0, 3.2);
 }
 `
 
@@ -112,20 +98,19 @@ void main() {
   float dist = length(coord);
   if (dist > 0.5) discard;
 
-  float circleAlpha = smoothstep(0.5, 0.08, dist);
+  float circleAlpha = smoothstep(0.5, 0.12, dist);
 
-  // Dynamic color mix between primary and secondary based on elevation and mouse proximity
-  float colorMix = clamp((vElevation + 1.2) * 0.35 + vMouseProximity * 0.55, 0.0, 1.0);
+  // Smooth color blending between route primary and secondary
+  float colorMix = clamp((vElevation + 0.5) * 0.5 + vMouseProximity * 0.25, 0.0, 1.0);
   vec3 finalColor = mix(uColor, uSecondaryColor, colorMix);
 
-  // Soft luminous halo boost near cursor
-  finalColor += uSecondaryColor * (vMouseProximity * 0.6);
+  // Very gentle highlight near cursor
+  finalColor += uSecondaryColor * (vMouseProximity * 0.15);
 
   float alpha = circleAlpha * uOpacity;
-  // Edge vignette falloff towards horizon
-  alpha *= clamp(1.0 - vDistFromCenter * 0.72, 0.1, 1.0);
-  // Enhance luminosity near cursor
-  alpha = clamp(alpha + vMouseProximity * 0.28, 0.0, 1.0);
+  // Soft horizon and edge falloff
+  alpha *= clamp(1.0 - vDistFromCenter * 0.85, 0.0, 1.0);
+  alpha += vMouseProximity * 0.06;
 
   gl_FragColor = vec4(finalColor, alpha);
 }
@@ -138,9 +123,9 @@ varying float vMouseProximity;
 varying float vDistFromCenter;
 
 void main() {
-  vec3 finalColor = uColor + vec3(0.08) * vMouseProximity;
-  float alpha = uOpacity * (0.8 + vMouseProximity * 0.7);
-  alpha *= clamp(1.0 - vDistFromCenter * 0.75, 0.08, 1.0);
+  vec3 finalColor = uColor;
+  float alpha = uOpacity;
+  alpha *= clamp(1.0 - vDistFromCenter * 0.85, 0.02, 1.0);
   gl_FragColor = vec4(finalColor, alpha);
 }
 `
@@ -235,7 +220,7 @@ export function SpatialDepthCanvas({ enabled }: SpatialDepthCanvasProps) {
       uClickTime: { value: -999.0 },
       uColor: { value: targetPrimaryColorRef.current.clone() },
       uSecondaryColor: { value: targetSecondaryColorRef.current.clone() },
-      uOpacity: { value: isDark ? 0.78 : 0.32 },
+      uOpacity: { value: isDark ? 0.22 : 0.07 },
       uIsDark: { value: isDark ? 1.0 : 0.0 },
     }
 
@@ -245,7 +230,7 @@ export function SpatialDepthCanvas({ enabled }: SpatialDepthCanvasProps) {
       uClickPos: uniforms.uClickPos,
       uClickTime: uniforms.uClickTime,
       uColor: { value: targetPrimaryColorRef.current.clone() },
-      uOpacity: { value: isDark ? 0.14 : 0.05 },
+      uOpacity: { value: isDark ? 0.045 : 0.015 },
     }
 
     const pointMaterial = new THREE.ShaderMaterial({
@@ -302,19 +287,19 @@ export function SpatialDepthCanvas({ enabled }: SpatialDepthCanvasProps) {
     const ringMat1 = new THREE.MeshBasicMaterial({
       color: targetPrimaryColorRef.current,
       transparent: true,
-      opacity: isDark ? 0.16 : 0.07,
+      opacity: isDark ? 0.035 : 0.012,
       wireframe: true,
     })
     const ringMat2 = new THREE.MeshBasicMaterial({
       color: targetSecondaryColorRef.current,
       transparent: true,
-      opacity: isDark ? 0.13 : 0.05,
+      opacity: isDark ? 0.028 : 0.010,
       wireframe: true,
     })
     const ringMat3 = new THREE.MeshBasicMaterial({
       color: targetPrimaryColorRef.current,
       transparent: true,
-      opacity: isDark ? 0.11 : 0.04,
+      opacity: isDark ? 0.022 : 0.008,
       wireframe: true,
     })
 
@@ -336,7 +321,7 @@ export function SpatialDepthCanvas({ enabled }: SpatialDepthCanvasProps) {
     scene.add(ringGroup)
 
     // ── LAYER 3: FLOATING VOLUMETRIC MICRO-PARTICLES / DATA DUST ─────────────
-    const DUST_COUNT = 160
+    const DUST_COUNT = 60
     const dustPositions = new Float32Array(DUST_COUNT * 3)
     const dustVelocities: Array<{ vx: number; vy: number; vz: number }> = []
 
@@ -345,9 +330,9 @@ export function SpatialDepthCanvas({ enabled }: SpatialDepthCanvasProps) {
       dustPositions[i * 3 + 1] = (Math.random() - 0.5) * 32 - 1
       dustPositions[i * 3 + 2] = -Math.random() * 26 - 2
       dustVelocities.push({
-        vx: (Math.random() - 0.5) * 0.005,
-        vy: Math.random() * 0.012 + 0.004,
-        vz: Math.random() * 0.014 + 0.004,
+        vx: (Math.random() - 0.5) * 0.002,
+        vy: Math.random() * 0.003 + 0.001,
+        vz: Math.random() * 0.003 + 0.001,
       })
     }
 
@@ -355,10 +340,10 @@ export function SpatialDepthCanvas({ enabled }: SpatialDepthCanvasProps) {
     dustGeometry.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3))
 
     const dustMaterial = new THREE.PointsMaterial({
-      size: 0.11,
+      size: 0.05,
       color: targetSecondaryColorRef.current,
       transparent: true,
-      opacity: isDark ? 0.42 : 0.15,
+      opacity: isDark ? 0.16 : 0.05,
       depthWrite: false,
       blending: isDark ? THREE.AdditiveBlending : THREE.NormalBlending,
     })
@@ -419,12 +404,12 @@ export function SpatialDepthCanvas({ enabled }: SpatialDepthCanvasProps) {
       if (nextDark !== isDark) {
         isDark = nextDark
         uniforms.uIsDark.value = isDark ? 1.0 : 0.0
-        uniforms.uOpacity.value = isDark ? 0.78 : 0.32
-        wireframeUniforms.uOpacity.value = isDark ? 0.14 : 0.05
-        dustMaterial.opacity = isDark ? 0.42 : 0.15
-        ringMat1.opacity = isDark ? 0.16 : 0.07
-        ringMat2.opacity = isDark ? 0.13 : 0.05
-        ringMat3.opacity = isDark ? 0.11 : 0.04
+        uniforms.uOpacity.value = isDark ? 0.22 : 0.07
+        wireframeUniforms.uOpacity.value = isDark ? 0.045 : 0.015
+        dustMaterial.opacity = isDark ? 0.16 : 0.05
+        ringMat1.opacity = isDark ? 0.035 : 0.012
+        ringMat2.opacity = isDark ? 0.028 : 0.010
+        ringMat3.opacity = isDark ? 0.022 : 0.008
         pointMaterial.blending = isDark ? THREE.AdditiveBlending : THREE.NormalBlending
         wireframeMaterial.blending = isDark ? THREE.AdditiveBlending : THREE.NormalBlending
         dustMaterial.blending = isDark ? THREE.AdditiveBlending : THREE.NormalBlending
@@ -461,49 +446,42 @@ export function SpatialDepthCanvas({ enabled }: SpatialDepthCanvasProps) {
       uniforms.uTime.value = elapsed
 
       // Damped Mouse 3D Interpolation
-      smoothMouse3D.lerp(targetMouse3D, 0.08)
+      smoothMouse3D.lerp(targetMouse3D, 0.05)
       uniforms.uMouse3D.value.copy(smoothMouse3D)
 
       // Damped Cursor Parallax
-      smoothMouseNormX += (targetMouseNormX - smoothMouseNormX) * 0.045
-      smoothMouseNormY += (targetMouseNormY - smoothMouseNormY) * 0.045
+      smoothMouseNormX += (targetMouseNormX - smoothMouseNormX) * 0.025
+      smoothMouseNormY += (targetMouseNormY - smoothMouseNormY) * 0.025
 
       // Smooth Route Tint Interpolation
-      uniforms.uColor.value.lerp(targetPrimaryColorRef.current, 0.045)
-      uniforms.uSecondaryColor.value.lerp(targetSecondaryColorRef.current, 0.045)
-      wireframeUniforms.uColor.value.lerp(targetPrimaryColorRef.current, 0.045)
-      ringMat1.color.lerp(targetPrimaryColorRef.current, 0.045)
-      ringMat2.color.lerp(targetSecondaryColorRef.current, 0.045)
-      ringMat3.color.lerp(targetPrimaryColorRef.current, 0.045)
-      dustMaterial.color.lerp(targetSecondaryColorRef.current, 0.045)
+      uniforms.uColor.value.lerp(targetPrimaryColorRef.current, 0.03)
+      uniforms.uSecondaryColor.value.lerp(targetSecondaryColorRef.current, 0.03)
+      wireframeUniforms.uColor.value.lerp(targetPrimaryColorRef.current, 0.03)
+      ringMat1.color.lerp(targetPrimaryColorRef.current, 0.03)
+      ringMat2.color.lerp(targetSecondaryColorRef.current, 0.03)
+      ringMat3.color.lerp(targetPrimaryColorRef.current, 0.03)
+      dustMaterial.color.lerp(targetSecondaryColorRef.current, 0.03)
 
       // Smooth Fog Color Transition
       const targetFogHex = isDark ? 0x070b14 : 0xf4f6fa
-      fogColor.lerp(new THREE.Color(targetFogHex), 0.05)
+      fogColor.lerp(new THREE.Color(targetFogHex), 0.04)
       sceneFog.color.copy(fogColor)
 
-      // Cinematic Multi-Plane Camera Parallax Float
-      const targetCamX = smoothMouseNormX * 3.4
-      const targetCamY = 7.8 - smoothMouseNormY * 1.8
+      // Architectural Subtle Camera Parallax Float (smooth, minimal)
+      const targetCamX = smoothMouseNormX * 0.75
+      const targetCamY = 7.8 - smoothMouseNormY * 0.45
       const targetCamZ = targetCamZRef.current
 
-      camera.position.x += (targetCamX - camera.position.x) * 0.045
-      camera.position.y += (targetCamY - camera.position.y) * 0.045
-      camera.position.z += (targetCamZ - camera.position.z) * 0.045
-      camera.rotation.z = -smoothMouseNormX * 0.024
+      camera.position.x += (targetCamX - camera.position.x) * 0.025
+      camera.position.y += (targetCamY - camera.position.y) * 0.025
+      camera.position.z += (targetCamZ - camera.position.z) * 0.025
+      camera.rotation.z = 0
       camera.lookAt(0, -1.8, -10)
 
-      // Layer 2: Gentle Orbital Telemetry Ring Counter-Rotations & Parallax Tilts
-      ring1.rotation.z += 0.0016
-      ring1.rotation.x = 0.36 + smoothMouseNormY * 0.08
-      ring1.rotation.y = 0.42 + smoothMouseNormX * 0.08
-
-      ring2.rotation.z -= 0.0012
-      ring2.rotation.x = -0.28 - smoothMouseNormY * 0.07
-      ring2.rotation.y = -0.32 - smoothMouseNormX * 0.07
-
-      ring3.rotation.y += 0.0009
-      ring3.rotation.z = -0.32 + smoothMouseNormX * 0.05
+      // Layer 2: Gentle Orbital Telemetry Ring Stately Rotations
+      ring1.rotation.z += 0.0003
+      ring2.rotation.z -= 0.0002
+      ring3.rotation.y += 0.00015
 
       // Layer 3: Volumetric Micro-Particle / Dust Motion & Wrap-Around
       const posAttr = dustGeometry.getAttribute('position') as THREE.BufferAttribute
@@ -513,7 +491,7 @@ export function SpatialDepthCanvas({ enabled }: SpatialDepthCanvasProps) {
         const vel = dustVelocities[i]
         const i3 = i * 3
 
-        positionsArray[i3] += vel.vx + smoothMouseNormX * 0.008
+        positionsArray[i3] += vel.vx + smoothMouseNormX * 0.002
         positionsArray[i3 + 1] += vel.vy
         positionsArray[i3 + 2] += vel.vz
 

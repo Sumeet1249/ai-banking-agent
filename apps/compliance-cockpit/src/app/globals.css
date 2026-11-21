@@ -325,21 +325,21 @@
   transform: translateZ(10px);
 }
 
-/* 3D Perspective Route Transition */
+/* Subtle Enterprise Route Transition */
 @keyframes pageWarpIn3D {
   from {
     opacity: 0;
-    transform: translate3d(0, 10px, -36px) rotateX(1.6deg);
+    transform: translateY(6px);
   }
 
   to {
     opacity: 1;
-    transform: translate3d(0, 0, 0) rotateX(0deg);
+    transform: translateY(0);
   }
 }
 
 .page-warp-in {
-  animation: pageWarpIn3D 380ms var(--ease-out) both;
+  animation: pageWarpIn3D 240ms var(--ease-out) both;
 }
 
 /* Staggered List / KPI Entrance */
