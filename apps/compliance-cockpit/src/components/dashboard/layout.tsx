@@ -9,7 +9,7 @@ import {
   LayoutDashboard, FileText, Shield, ScrollText, Sparkles,
   CheckCircle, AlertTriangle, Settings,
   ShieldHalf, ClipboardList, UserRound, Layers, FileCheck2,
-  Menu, X, Undo2, Box, Wallet, Pin, PinOff,
+  Menu, X, Undo2, Box, Wallet, Pin, PinOff, TrendingUp,
 } from 'lucide-react'
 import { useTraceStream } from '@/hooks/useTraceStream'
 import { BlockAlertToast } from '@/components/ui/block-alert-toast'
@@ -50,9 +50,10 @@ const navGroups: Array<{ label: string | null; items: NavDef[] }> = [
     ],
   },
   {
-    label: 'AI Agents',
+    label: 'AI Agents & Research',
     items: [
       { name: 'Agent Registry', href: '/agents', icon: UserRound },
+      { name: 'Market Intelligence', href: '/market-intelligence', icon: TrendingUp, badge: 'RESEARCH' },
     ],
   },
   {

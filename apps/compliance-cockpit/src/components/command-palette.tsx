@@ -30,7 +30,7 @@ import {
   LayoutDashboard, FileText, CheckCircle, Undo2, AlertTriangle, UserRound,
   Shield, Layers, Brain, ClipboardList, FileCheck2, Settings, Sparkles,
   ScrollText, ShieldHalf, ScanLine, Compass, FlaskConical, LogOut,
-  Zap, KeyRound, Search,
+  Zap, KeyRound, Search, TrendingUp,
 } from 'lucide-react'
 import { gw } from '@/lib/gateway'
 
@@ -88,6 +88,7 @@ export function CommandPalette() {
   const commands: Command[] = useMemo(() => {
     const nav: Command[] = [
       { id: 'nav:banking',    name: 'Banking Command', hint: 'Attack lab, mandates, passkey & Merkle ledger', icon: Layers, action: () => router.push('/banking') },
+      { id: 'nav:market',     name: 'Market Intelligence', hint: 'NSE/BSE research, SIPs, Mutual Funds, Gold ETF', icon: TrendingUp, action: () => router.push('/market-intelligence') },
       { id: 'nav:overview',   name: 'Overview',       icon: LayoutDashboard, action: () => router.push('/') },
       { id: 'nav:activity',   name: 'Activity',       hint: 'traces',    icon: FileText,      action: () => router.push('/traces') },
       { id: 'nav:approvals',  name: 'Approvals',      hint: 'pending review', icon: CheckCircle, action: () => router.push('/approvals') },
