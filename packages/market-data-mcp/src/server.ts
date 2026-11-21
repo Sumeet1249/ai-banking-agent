@@ -8,7 +8,7 @@
  */
 
 import express, { Request, Response, NextFunction } from 'express';
-import { marketConfig } from './config';
+import { marketConfig, createResponseMetadata } from './config';
 import { MarketStore } from './db/market-store';
 import { ReadOnlyPolicy } from './security/read-only-policy';
 import { DrishtiMarketDataAdapter } from './providers/drishti/drishti-adapter';
@@ -67,7 +67,11 @@ export function createMarketServer() {
   app.get('/api/market/status', async (_req: Request, res: Response) => {
     try {
       const status = await licensedProvider.getMarketStatus();
-      res.json({ success: true, data: status });
+      res.json({
+        success: true,
+        data: status,
+        meta: createResponseMetadata({ provider: licensedProvider.providerName, exchange: 'NSE' }),
+      });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -79,7 +83,12 @@ export function createMarketServer() {
       const query = (req.query.q as string) || '';
       const exchange = req.query.exchange as string | undefined;
       const instruments = await licensedProvider.searchInstruments(query, exchange);
-      res.json({ success: true, count: instruments.length, data: instruments });
+      res.json({
+        success: true,
+        count: instruments.length,
+        data: instruments,
+        meta: createResponseMetadata({ provider: 'NSE_BSE_MASTER', exchange: (exchange as any) || 'NSE' }),
+      });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -114,6 +123,11 @@ export function createMarketServer() {
           concallTranscripts: concalls,
           historicalPrices: prices,
         },
+        meta: createResponseMetadata({
+          provider: drishtiProvider.providerName,
+          instrument: symbol,
+          exchange: exchange as any,
+        }),
       });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
@@ -147,7 +161,15 @@ export function createMarketServer() {
         includePortfolioContext: !!includePortfolioContext,
       });
 
-      res.json({ success: true, data: report });
+      res.json({
+        success: true,
+        data: report,
+        meta: createResponseMetadata({
+          provider: 'AgentGuard_MultiAgent_Orchestrator',
+          instrument: report.symbol,
+          exchange: report.exchange as any,
+        }),
+      });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -171,7 +193,15 @@ export function createMarketServer() {
       if (!report) {
         return res.status(404).json({ success: false, error: 'Report not found' });
       }
-      res.json({ success: true, data: report });
+      res.json({
+        success: true,
+        data: report,
+        meta: createResponseMetadata({
+          provider: 'AgentGuard_MultiAgent_Orchestrator',
+          instrument: report.symbol,
+          exchange: report.exchange as any,
+        }),
+      });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -184,7 +214,14 @@ export function createMarketServer() {
       const customerRef = (req.headers['x-customer-ref'] as string) || (req.query.customerRef as string) || 'cust-101';
 
       const analysis = await orchestrator.runPortfolioAnalysis(tenantId, customerRef);
-      res.json({ success: true, data: analysis });
+      res.json({
+        success: true,
+        data: analysis,
+        meta: createResponseMetadata({
+          provider: upstoxProvider.brokerName,
+          isSynthetic: marketConfig.environment !== 'PRODUCTION',
+        }),
+      });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
     }

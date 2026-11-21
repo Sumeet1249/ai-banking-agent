@@ -15,4 +15,5 @@ export * from './agents/valuation-analysis-agent';
 export * from './agents/news-filing-agent';
 export * from './agents/portfolio-intelligence-agent';
 export * from './agents/risk-analysis-agent';
+export * from './finance/financial-math';
 export * from './orchestration/market-research-orchestrator';
