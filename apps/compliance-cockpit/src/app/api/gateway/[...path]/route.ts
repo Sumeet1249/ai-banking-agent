@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { serverAgentStore } from '@/lib/server-agent-store'
 import { serverApprovalStore } from '@/lib/server-approval-store'
-import { mockTraces } from '@/lib/mock-traces'
+import { mockTraces, mockComplianceBundle, mockComplianceControls } from '@/lib/mock-traces'
 
 const BASE = process.env['GATEWAY_URL'] || 'http://127.0.0.1:8080'
 
@@ -115,6 +115,14 @@ function demoEmptyShape(path: string): unknown {
   };
   if (path.startsWith('sessions')) return { sessions: [] };
   if (path.startsWith('audit-log')) return { items: [] };
+  if (path.startsWith('compliance/bundle/')) {
+    const fw = path.replace('compliance/bundle/', '').split('/')[0] || 'soc2';
+    return mockComplianceBundle(fw);
+  }
+  if (path.startsWith('compliance/controls/')) {
+    const fw = path.replace('compliance/controls/', '').split('/')[0] || 'soc2';
+    return { controls: mockComplianceControls(fw) };
+  }
   if (path.startsWith('compliance')) return { rows: [], mappings: [] };
   if (path.startsWith('rollbacks')) return { items: [] };
   if (path.startsWith('coverage')) return { agents: [], rules: [] };
