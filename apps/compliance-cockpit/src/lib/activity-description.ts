@@ -189,15 +189,16 @@ export function describeActivity(trace: any): RichActivity {
     return { text: path ? `Read ${truncate(String(path), 45)}` : 'Read a file', iconKey: tool }
   }
 
-  // ── PAYMENT ──────────────────────────────────────────────────────
-  if (/stripe|razorpay|payout|transfer|payment/.test(tool) || /razorpay\.com|stripe\.com/.test(String(args.url || ''))) {
+  // ── PAYMENT & RESERVATION ──────────────────────────────────────────
+  if (/stripe|razorpay|payout|transfer|payment|reservation|reserve/.test(tool) || /razorpay\.com|stripe\.com/.test(String(args.url || ''))) {
     const amt = args.amount_paise ?? args.amount_cents ?? args.amount ?? null
     const inr = typeof amt === 'number'
-      ? (amt > 9999 ? `₹${(amt / 100).toLocaleString('en-IN')}` : `₹${amt}`)
+      ? (amt > 9999 ? `₹${Math.round(amt / 100).toLocaleString('en-IN')}` : `₹${amt}`)
       : null
-    const action = /refund/.test(tool) ? 'Refunded' : /transfer|payout/.test(tool) ? 'Transferred' : 'Paid'
+    const target = args.merchant || args.payee || args.destination || args.pool || null
+    const action = /refund/.test(tool) ? 'Refunded' : /transfer|payout/.test(tool) ? 'Transferred' : /reserve|reservation/.test(tool) ? 'Reserve' : 'Paid'
     return {
-      text: inr ? `${action} ${inr}` : `${action} via Payment Gateway`,
+      text: inr && target ? `${action} ${inr} for ${target}` : inr ? `${action} ${inr}` : `${action} via Payment Gateway`,
       iconKey: tool,
     }
   }

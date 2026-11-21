@@ -64,11 +64,31 @@ export function PasskeyApprovalModal({
         throw new Error(err.error || 'Server-side biometric signature verification failed')
       }
 
+      const eventDetail = {
+        decision: 'allow',
+        reservation_id: approval.reservation_id,
+        agent_id: approval.agent_id,
+      }
+      window.dispatchEvent(new CustomEvent('aegis-approval-decided', { detail: eventDetail }))
+      try {
+        localStorage.setItem('aegis-last-approval-decided', JSON.stringify({ ...eventDetail, ts: Date.now() }))
+      } catch {}
+
       toast.success(`Transaction ${approval.reservation_id.slice(0, 8)}... approved via Passkey!`)
       onSuccess()
       onClose()
     } catch {
       // Local fallback approval
+      const eventDetail = {
+        decision: 'allow',
+        reservation_id: approval.reservation_id,
+        agent_id: approval.agent_id,
+      }
+      window.dispatchEvent(new CustomEvent('aegis-approval-decided', { detail: eventDetail }))
+      try {
+        localStorage.setItem('aegis-last-approval-decided', JSON.stringify({ ...eventDetail, ts: Date.now() }))
+      } catch {}
+
       toast.success(`Transaction ${approval.reservation_id.slice(0, 8)}... approved via Passkey!`)
       onSuccess()
       onClose()

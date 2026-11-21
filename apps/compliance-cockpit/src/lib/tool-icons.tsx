@@ -130,7 +130,7 @@ const COLOR: Record<ToolKey, string> = {
 function classify(toolName: string | null | undefined): ToolKey {
   if (!toolName) return 'other'
   const n = toolName.toLowerCase()
-  if (/money|iban|balance|transaction|payment|(^|_)pay(_|$)|transfer|invoice|refund|deposit|withdraw/.test(n)) return 'money'
+  if (/money|iban|balance|transaction|payment|(^|_)pay(_|$)|transfer|invoice|refund|deposit|withdraw|reservation/.test(n)) return 'money'
   if (/message|channel|(^|_)dm(_|$)|chat|(^|_)post_to/.test(n)) return 'message'
   if (/invite|(^|_)users?(_|$)|member/.test(n)) return 'people'
   if (/webpage|browse|(^|_)url(_|$)/.test(n)) return 'http'

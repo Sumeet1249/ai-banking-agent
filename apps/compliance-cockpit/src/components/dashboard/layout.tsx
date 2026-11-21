@@ -9,7 +9,7 @@ import {
   LayoutDashboard, FileText, Shield, ScrollText, Sparkles,
   CheckCircle, AlertTriangle, Settings,
   ShieldHalf, ClipboardList, UserRound, Layers, FileCheck2,
-  Menu, X, Undo2, Box, Wallet, Pin, PinOff, TrendingUp, ShieldCheck,
+  Menu, X, Undo2, Box, Wallet, Pin, PinOff,
 } from 'lucide-react'
 import { useTraceStream } from '@/hooks/useTraceStream'
 import { BlockAlertToast } from '@/components/ui/block-alert-toast'
@@ -50,11 +50,9 @@ const navGroups: Array<{ label: string | null; items: NavDef[] }> = [
     ],
   },
   {
-    label: 'AI Agents & Research',
+    label: 'AI Agents',
     items: [
-      { name: 'Trust Intelligence', href: '/agent-trust', icon: ShieldCheck, badge: 'TI-ENGINE' },
       { name: 'Agent Registry', href: '/agents', icon: UserRound },
-      { name: 'Market Intelligence', href: '/market-intelligence', icon: TrendingUp, badge: 'RESEARCH' },
     ],
   },
   {
@@ -213,367 +211,367 @@ function DesktopSidebarContent({
   setIsometricMode: React.Dispatch<React.SetStateAction<boolean>>
 }) {
   return (
-      <div className="flex flex-col h-full select-none overflow-hidden whitespace-nowrap">
-        {/* Header with Logo + Pin Toggle */}
-        <div
-          className={cn(
-            'flex items-center h-16 px-3 border-b border-border/80 transition-all duration-200 shrink-0',
-            isExpanded ? 'justify-between px-4' : 'justify-center'
-          )}
-        >
-          <AegisLogo collapsed={!isExpanded} />
+    <div className="flex flex-col h-full select-none overflow-hidden whitespace-nowrap">
+      {/* Header with Logo + Pin Toggle */}
+      <div
+        className={cn(
+          'flex items-center h-16 px-3 border-b border-border/80 transition-all duration-200 shrink-0',
+          isExpanded ? 'justify-between px-4' : 'justify-center'
+        )}
+      >
+        <AegisLogo collapsed={!isExpanded} />
 
-          {isExpanded && (
-            <button
-              type="button"
-              onClick={onTogglePin}
-              title={isPinned ? 'Unpin sidebar (hover-expand)' : 'Pin sidebar open'}
-              className={cn(
-                'p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-[hsl(var(--sidebar-active))] transition-colors duration-150',
-                isPinned && 'text-primary bg-primary/10'
-              )}
-            >
-              {isPinned ? (
-                <PinOff className="h-4 w-4" strokeWidth={1.6} />
-              ) : (
-                <Pin className="h-4 w-4" strokeWidth={1.6} />
-              )}
-            </button>
-          )}
-        </div>
-
-        {/* Nav Groups */}
-          <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-2 overflow-x-hidden whitespace-nowrap">
-            {navGroups.map((g, gi) => (
-              <div key={gi} className={gi ? 'pt-1' : ''}>
-                {/* Group Label / Divider */}
-                {g.label ? (
-                  isExpanded ? (
-                    <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/80 whitespace-nowrap transition-opacity duration-200">
-                      {g.label}
-                    </p>
-                  ) : (
-                    gi > 0 && <div className="my-2 border-t border-border/60 mx-1" />
-                  )
-                ) : (
-                  !isExpanded && gi > 0 && <div className="my-2 border-t border-border/60 mx-1" />
-                )}
-
-                <div className="space-y-0.5">
-                  {g.items.map((item) => (
-                    <NavLink
-                      key={item.name}
-                      item={item}
-                      pathname={pathname}
-                      collapsed={!isExpanded}
-                    />
-                  ))}
-                </div>
-              </div>
-            ))}
-          </nav>
-
-          {/* Footer Controls */}
-            <div className="p-3 border-t border-border/80 shrink-0 space-y-2 bg-[hsl(var(--sidebar))] whitespace-nowrap">
-              {isExpanded ? (
-                <>
-                  <div className="flex items-center gap-1.5">
-                    <span
-                      className="w-1.5 h-1.5 rounded-full shrink-0"
-                      style={{
-                        background: 'hsl(var(--status-ok))',
-                        boxShadow: '0 0 0 2px hsl(var(--status-ok) / 0.25)',
-                      }}
-                    />
-                      <span className="text-[11px] font-medium text-[hsl(var(--status-ok))] truncate whitespace-nowrap">
-                        {connected ? 'Live · Gateway Active' : 'Protected · AgentShield'}
-                      </span>
-                      {lastUpdate && (
-                        <span
-                          className="text-[10px] ml-auto shrink-0 whitespace-nowrap"
-                          style={{ color: MUTED, opacity: 0.7 }}
-                          suppressHydrationWarning
-                        >
-                          {lastUpdate.toLocaleTimeString('en-US', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            second: '2-digit',
-                          })}
-                        </span>
-                      )}
-                  </div>
-
-                  {notifPermission !== 'granted' && notifPermission !== 'denied' && (
-                    <button
-                      onClick={requestNotifPermission}
-                      className="w-full text-left text-[11px] px-2 py-1 rounded-md transition-colors hover:bg-[hsl(var(--secondary))] text-muted-foreground whitespace-nowrap"
-                      title="Get notified even when this tab is in background"
-                    >
-                      Enable notifications
-                    </button>
-                  )}
-
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <ThemeToggle />
-                    <button
-                      type="button"
-                      onClick={() => setDepthEnabled((v) => !v)}
-                      title="Toggle 3D Spatial Depth"
-                      className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors whitespace-nowrap ${depthEnabled
-                        ? 'border-[hsl(var(--brand)/0.4)] bg-[hsl(var(--brand)/0.12)] text-foreground'
-                        : 'border-border bg-secondary/50 text-muted-foreground hover:text-foreground'
-                      }`}
-                    >
-                      <Layers className="h-3.5 w-3.5" strokeWidth={1.6} />
-                      <span>3D</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setIsometricMode((v) => !v)}
-                      title="Toggle Isometric Stage Perspective"
-                      className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors whitespace-nowrap ${isometricMode
-                        ? 'border-[hsl(var(--brand)/0.4)] bg-[hsl(var(--brand)/0.12)] text-foreground'
-                        : 'border-border bg-secondary/50 text-muted-foreground hover:text-foreground'
-                      }`}
-                    >
-                      <Box className="h-3.5 w-3.5" strokeWidth={1.6} />
-                      <span>Iso</span>
-                    </button>
-                  </div>
-              <AccountWidget />
-              <p className="text-[10px] text-muted-foreground/80 whitespace-nowrap">v{process.env.APP_VERSION || '1.0.0'}</p>
-            </>
+        {isExpanded && (
+          <button
+            type="button"
+            onClick={onTogglePin}
+            title={isPinned ? 'Unpin sidebar (hover-expand)' : 'Pin sidebar open'}
+            className={cn(
+              'p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-[hsl(var(--sidebar-active))] transition-colors duration-150',
+              isPinned && 'text-primary bg-primary/10'
+            )}
+          >
+            {isPinned ? (
+              <PinOff className="h-4 w-4" strokeWidth={1.6} />
             ) : (
-            <div className="flex flex-col items-center gap-2 py-1">
+              <Pin className="h-4 w-4" strokeWidth={1.6} />
+            )}
+          </button>
+        )}
+      </div>
+
+      {/* Nav Groups */}
+      <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-2 overflow-x-hidden whitespace-nowrap">
+        {navGroups.map((g, gi) => (
+          <div key={gi} className={gi ? 'pt-1' : ''}>
+            {/* Group Label / Divider */}
+            {g.label ? (
+              isExpanded ? (
+                <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/80 whitespace-nowrap transition-opacity duration-200">
+                  {g.label}
+                </p>
+              ) : (
+                gi > 0 && <div className="my-2 border-t border-border/60 mx-1" />
+              )
+            ) : (
+              !isExpanded && gi > 0 && <div className="my-2 border-t border-border/60 mx-1" />
+            )}
+
+            <div className="space-y-0.5">
+              {g.items.map((item) => (
+                <NavLink
+                  key={item.name}
+                  item={item}
+                  pathname={pathname}
+                  collapsed={!isExpanded}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+      </nav>
+
+      {/* Footer Controls */}
+      <div className="p-3 border-t border-border/80 shrink-0 space-y-2 bg-[hsl(var(--sidebar))] whitespace-nowrap">
+        {isExpanded ? (
+          <>
+            <div className="flex items-center gap-1.5">
               <span
-                className="w-2 h-2 rounded-full"
+                className="w-1.5 h-1.5 rounded-full shrink-0"
                 style={{
                   background: 'hsl(var(--status-ok))',
                   boxShadow: '0 0 0 2px hsl(var(--status-ok) / 0.25)',
                 }}
-                title={connected ? 'Live · Gateway Active' : 'Protected · AgentShield'}
               />
+              <span className="text-[11px] font-medium text-[hsl(var(--status-ok))] truncate whitespace-nowrap">
+                {connected ? 'Live · Gateway Active' : 'Protected · AgentShield'}
+              </span>
+              {lastUpdate && (
+                <span
+                  className="text-[10px] ml-auto shrink-0 whitespace-nowrap"
+                  style={{ color: MUTED, opacity: 0.7 }}
+                  suppressHydrationWarning
+                >
+                  {lastUpdate.toLocaleTimeString('en-US', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                  })}
+                </span>
+              )}
+            </div>
+
+            {notifPermission !== 'granted' && notifPermission !== 'denied' && (
+              <button
+                onClick={requestNotifPermission}
+                className="w-full text-left text-[11px] px-2 py-1 rounded-md transition-colors hover:bg-[hsl(var(--secondary))] text-muted-foreground whitespace-nowrap"
+                title="Get notified even when this tab is in background"
+              >
+                Enable notifications
+              </button>
+            )}
+
+            <div className="flex items-center gap-1.5 flex-wrap">
               <ThemeToggle />
               <button
                 type="button"
                 onClick={() => setDepthEnabled((v) => !v)}
                 title="Toggle 3D Spatial Depth"
-                className={`p-1.5 rounded-md border text-[10px] font-medium transition-colors ${depthEnabled
-                    ? 'border-[hsl(var(--brand)/0.4)] bg-[hsl(var(--brand)/0.12)] text-foreground'
-                    : 'border-border bg-secondary/50 text-muted-foreground hover:text-foreground'
+                className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors whitespace-nowrap ${depthEnabled
+                  ? 'border-[hsl(var(--brand)/0.4)] bg-[hsl(var(--brand)/0.12)] text-foreground'
+                  : 'border-border bg-secondary/50 text-muted-foreground hover:text-foreground'
                   }`}
               >
                 <Layers className="h-3.5 w-3.5" strokeWidth={1.6} />
+                <span>3D</span>
               </button>
               <button
                 type="button"
                 onClick={() => setIsometricMode((v) => !v)}
                 title="Toggle Isometric Stage Perspective"
-                className={`p-1.5 rounded-md border text-[10px] font-medium transition-colors ${isometricMode
-                    ? 'border-[hsl(var(--brand)/0.4)] bg-[hsl(var(--brand)/0.12)] text-foreground'
-                    : 'border-border bg-secondary/50 text-muted-foreground hover:text-foreground'
+                className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors whitespace-nowrap ${isometricMode
+                  ? 'border-[hsl(var(--brand)/0.4)] bg-[hsl(var(--brand)/0.12)] text-foreground'
+                  : 'border-border bg-secondary/50 text-muted-foreground hover:text-foreground'
                   }`}
               >
                 <Box className="h-3.5 w-3.5" strokeWidth={1.6} />
+                <span>Iso</span>
               </button>
             </div>
-        )}
+            <AccountWidget />
+            <p className="text-[10px] text-muted-foreground/80 whitespace-nowrap">v{process.env.APP_VERSION || '1.0.0'}</p>
+          </>
+        ) : (
+          <div className="flex flex-col items-center gap-2 py-1">
+            <span
+              className="w-2 h-2 rounded-full"
+              style={{
+                background: 'hsl(var(--status-ok))',
+                boxShadow: '0 0 0 2px hsl(var(--status-ok) / 0.25)',
+              }}
+              title={connected ? 'Live · Gateway Active' : 'Protected · AgentShield'}
+            />
+            <ThemeToggle />
+            <button
+              type="button"
+              onClick={() => setDepthEnabled((v) => !v)}
+              title="Toggle 3D Spatial Depth"
+              className={`p-1.5 rounded-md border text-[10px] font-medium transition-colors ${depthEnabled
+                ? 'border-[hsl(var(--brand)/0.4)] bg-[hsl(var(--brand)/0.12)] text-foreground'
+                : 'border-border bg-secondary/50 text-muted-foreground hover:text-foreground'
+                }`}
+            >
+              <Layers className="h-3.5 w-3.5" strokeWidth={1.6} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsometricMode((v) => !v)}
+              title="Toggle Isometric Stage Perspective"
+              className={`p-1.5 rounded-md border text-[10px] font-medium transition-colors ${isometricMode
+                ? 'border-[hsl(var(--brand)/0.4)] bg-[hsl(var(--brand)/0.12)] text-foreground'
+                : 'border-border bg-secondary/50 text-muted-foreground hover:text-foreground'
+                }`}
+            >
+              <Box className="h-3.5 w-3.5" strokeWidth={1.6} />
+            </button>
           </div>
+        )}
       </div>
-      )
+    </div>
+  )
 }
 
-      function MobileSidebarContent({
-        pathname,
-        onLinkClick,
-        connected,
-        lastUpdate,
-        notifPermission,
-        requestNotifPermission,
-        depthEnabled,
-        setDepthEnabled,
-        isometricMode,
-        setIsometricMode,
+function MobileSidebarContent({
+  pathname,
+  onLinkClick,
+  connected,
+  lastUpdate,
+  notifPermission,
+  requestNotifPermission,
+  depthEnabled,
+  setDepthEnabled,
+  isometricMode,
+  setIsometricMode,
 }: {
-        pathname: string
+  pathname: string
   onLinkClick?: () => void
-      connected: boolean
-      lastUpdate: Date | null
-      notifPermission: NotificationPermission | 'default'
+  connected: boolean
+  lastUpdate: Date | null
+  notifPermission: NotificationPermission | 'default'
   requestNotifPermission: () => void
-      depthEnabled: boolean
-      setDepthEnabled: React.Dispatch<React.SetStateAction<boolean>>
-        isometricMode: boolean
-        setIsometricMode: React.Dispatch<React.SetStateAction<boolean>>
+  depthEnabled: boolean
+  setDepthEnabled: React.Dispatch<React.SetStateAction<boolean>>
+  isometricMode: boolean
+  setIsometricMode: React.Dispatch<React.SetStateAction<boolean>>
 }) {
   return (
-          <div className="flex flex-col h-full select-none overflow-hidden">
-            <div className="flex items-center px-4 py-5 border-b border-border/80">
-              <AegisLogo />
-            </div>
+    <div className="flex flex-col h-full select-none overflow-hidden">
+      <div className="flex items-center px-4 py-5 border-b border-border/80">
+        <AegisLogo />
+      </div>
 
-            <nav className="flex-1 overflow-y-auto px-2 py-2 space-y-1">
-              {navGroups.map((g, gi) => (
-                <div key={gi} className={gi ? 'pt-2' : ''}>
-                  {g.label && (
-                    <p className="px-3 pb-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/80">
-                      {g.label}
-                    </p>
-                  )}
-                  {g.items.map((item) => (
-                    <NavLink
-                      key={item.name}
-                      item={item}
-                      pathname={pathname}
-                      onLinkClick={onLinkClick}
-                    />
-                  ))}
-                </div>
-              ))}
-            </nav>
-
-            <div className="px-4 py-4 border-t border-border/80 space-y-2">
-              <div className="flex items-center gap-1.5">
-                <span
-                  className="w-1.5 h-1.5 rounded-full shrink-0"
-                  style={{
-                    background: 'hsl(var(--status-ok))',
-                    boxShadow: '0 0 0 2px hsl(var(--status-ok) / 0.25)',
-                  }}
-                />
-                <span className="text-[11px] font-medium text-[hsl(var(--status-ok))]">
-                  {connected ? 'Live · Gateway Active' : 'Protected · AgentShield'}
-                </span>
-                {lastUpdate && (
-                  <span
-                    className="text-[10px] ml-auto"
-                    style={{ color: MUTED, opacity: 0.7 }}
-                    suppressHydrationWarning
-                  >
-                    {lastUpdate.toLocaleTimeString('en-US', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      second: '2-digit',
-                    })}
-                  </span>
-                )}
-              </div>
-              {notifPermission !== 'granted' && notifPermission !== 'denied' && (
-                <button
-                  onClick={requestNotifPermission}
-                  className="w-full text-left text-[11px] px-2 py-1 rounded-md transition-colors hover:bg-[hsl(var(--secondary))]"
-                  style={{ background: 'transparent', color: MUTED }}
-                  title="Get notified even when this tab is in background"
-                >
-                  Enable notifications
-                </button>
-              )}
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <ThemeToggle />
-                <button
-                  type="button"
-                  onClick={() => setDepthEnabled((v) => !v)}
-                  title="Toggle 3D Spatial Depth"
-                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${depthEnabled
-                      ? 'border-[hsl(var(--brand)/0.4)] bg-[hsl(var(--brand)/0.12)] text-foreground'
-                      : 'border-border bg-secondary/50 text-muted-foreground hover:text-foreground'
-                    }`}
-                >
-                  <Layers className="h-3.5 w-3.5" strokeWidth={1.6} />
-                  <span>3D</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsometricMode((v) => !v)}
-                  title="Toggle Isometric Stage Perspective"
-                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${isometricMode
-                      ? 'border-[hsl(var(--brand)/0.4)] bg-[hsl(var(--brand)/0.12)] text-foreground'
-                      : 'border-border bg-secondary/50 text-muted-foreground hover:text-foreground'
-                    }`}
-                >
-                  <Box className="h-3.5 w-3.5" strokeWidth={1.6} />
-                  <span>Iso</span>
-                </button>
-              </div>
-              <AccountWidget />
-              <p className="text-[11px]" style={{ color: MUTED, opacity: 0.85 }}>
-                v{process.env.APP_VERSION || '1.0.0'}
+      <nav className="flex-1 overflow-y-auto px-2 py-2 space-y-1">
+        {navGroups.map((g, gi) => (
+          <div key={gi} className={gi ? 'pt-2' : ''}>
+            {g.label && (
+              <p className="px-3 pb-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/80">
+                {g.label}
               </p>
-            </div>
+            )}
+            {g.items.map((item) => (
+              <NavLink
+                key={item.name}
+                item={item}
+                pathname={pathname}
+                onLinkClick={onLinkClick}
+              />
+            ))}
           </div>
-          )
+        ))}
+      </nav>
+
+      <div className="px-4 py-4 border-t border-border/80 space-y-2">
+        <div className="flex items-center gap-1.5">
+          <span
+            className="w-1.5 h-1.5 rounded-full shrink-0"
+            style={{
+              background: 'hsl(var(--status-ok))',
+              boxShadow: '0 0 0 2px hsl(var(--status-ok) / 0.25)',
+            }}
+          />
+          <span className="text-[11px] font-medium text-[hsl(var(--status-ok))]">
+            {connected ? 'Live · Gateway Active' : 'Protected · AgentShield'}
+          </span>
+          {lastUpdate && (
+            <span
+              className="text-[10px] ml-auto"
+              style={{ color: MUTED, opacity: 0.7 }}
+              suppressHydrationWarning
+            >
+              {lastUpdate.toLocaleTimeString('en-US', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+              })}
+            </span>
+          )}
+        </div>
+        {notifPermission !== 'granted' && notifPermission !== 'denied' && (
+          <button
+            onClick={requestNotifPermission}
+            className="w-full text-left text-[11px] px-2 py-1 rounded-md transition-colors hover:bg-[hsl(var(--secondary))]"
+            style={{ background: 'transparent', color: MUTED }}
+            title="Get notified even when this tab is in background"
+          >
+            Enable notifications
+          </button>
+        )}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <ThemeToggle />
+          <button
+            type="button"
+            onClick={() => setDepthEnabled((v) => !v)}
+            title="Toggle 3D Spatial Depth"
+            className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${depthEnabled
+              ? 'border-[hsl(var(--brand)/0.4)] bg-[hsl(var(--brand)/0.12)] text-foreground'
+              : 'border-border bg-secondary/50 text-muted-foreground hover:text-foreground'
+              }`}
+          >
+            <Layers className="h-3.5 w-3.5" strokeWidth={1.6} />
+            <span>3D</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsometricMode((v) => !v)}
+            title="Toggle Isometric Stage Perspective"
+            className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${isometricMode
+              ? 'border-[hsl(var(--brand)/0.4)] bg-[hsl(var(--brand)/0.12)] text-foreground'
+              : 'border-border bg-secondary/50 text-muted-foreground hover:text-foreground'
+              }`}
+          >
+            <Box className="h-3.5 w-3.5" strokeWidth={1.6} />
+            <span>Iso</span>
+          </button>
+        </div>
+        <AccountWidget />
+        <p className="text-[11px]" style={{ color: MUTED, opacity: 0.85 }}>
+          v{process.env.APP_VERSION || '1.0.0'}
+        </p>
+      </div>
+    </div>
+  )
 }
 
-          export function DashboardLayout({children}: {children: ReactNode }) {
+export function DashboardLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname()
-          const [mobileOpen, setMobileOpen] = useState(false)
-          const [depthEnabled, setDepthEnabled] = useState(true)
-          const [isometricMode, setIsometricMode] = useState(false)
-          use3DTilt(depthEnabled)
-          const {
-            connected,
-            lastUpdate,
-            alerts,
-            dismissAlert,
-            notifPermission,
-            requestNotifPermission,
+  const [mobileOpen, setMobileOpen] = useState(false)
+  const [depthEnabled, setDepthEnabled] = useState(true)
+  const [isometricMode, setIsometricMode] = useState(false)
+  use3DTilt(depthEnabled)
+  const {
+    connected,
+    lastUpdate,
+    alerts,
+    dismissAlert,
+    notifPermission,
+    requestNotifPermission,
   } = useTraceStream()
 
-          // Desktop hover-expandable rail state
-          const [isHovered, setIsHovered] = useState(false)
-          const [isFocused, setIsFocused] = useState(false)
-          const [isPinned, setIsPinned] = useState(false)
-          const openTimerRef = useRef<NodeJS.Timeout | null>(null)
-          const closeTimerRef = useRef<NodeJS.Timeout | null>(null)
+  // Desktop hover-expandable rail state
+  const [isHovered, setIsHovered] = useState(false)
+  const [isFocused, setIsFocused] = useState(false)
+  const [isPinned, setIsPinned] = useState(false)
+  const openTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const closeTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   // Load pinned state from localStorage on mount
   useEffect(() => {
     try {
       const saved = localStorage.getItem('agentshield_sidebar_pinned')
-          if (saved === 'true') {
-            setIsPinned(true)
-          }
+      if (saved === 'true') {
+        setIsPinned(true)
+      }
     } catch {
-            // Ignore localStorage errors
-          }
+      // Ignore localStorage errors
+    }
   }, [])
 
   const handleTogglePin = () => {
-            setIsPinned((prev) => {
-              const next = !prev
-              try {
-                localStorage.setItem('agentshield_sidebar_pinned', String(next))
-              } catch {
-                // Ignore localStorage errors
-              }
-              return next
-            })
-          }
+    setIsPinned((prev) => {
+      const next = !prev
+      try {
+        localStorage.setItem('agentshield_sidebar_pinned', String(next))
+      } catch {
+        // Ignore localStorage errors
+      }
+      return next
+    })
+  }
 
   // Handle Intent-Delay Hover
   const handleMouseEnter = () => {
     if (closeTimerRef.current) {
-            clearTimeout(closeTimerRef.current)
+      clearTimeout(closeTimerRef.current)
       closeTimerRef.current = null
     }
-          if (!openTimerRef.current) {
-            openTimerRef.current = setTimeout(() => {
-              setIsHovered(true)
-              openTimerRef.current = null
-          }, 80) // ~80ms intent delay
+    if (!openTimerRef.current) {
+      openTimerRef.current = setTimeout(() => {
+        setIsHovered(true)
+        openTimerRef.current = null
+      }, 80) // ~80ms intent delay
     }
   }
 
   const handleMouseLeave = () => {
     if (openTimerRef.current) {
-            clearTimeout(openTimerRef.current)
+      clearTimeout(openTimerRef.current)
       openTimerRef.current = null
     }
-          if (!closeTimerRef.current) {
-            closeTimerRef.current = setTimeout(() => {
-              setIsHovered(false)
-              closeTimerRef.current = null
-          }, 200) // ~200ms grace delay
+    if (!closeTimerRef.current) {
+      closeTimerRef.current = setTimeout(() => {
+        setIsHovered(false)
+        closeTimerRef.current = null
+      }, 200) // ~200ms grace delay
     }
   }
 
@@ -581,133 +579,133 @@ function DesktopSidebarContent({
   useEffect(() => {
     return () => {
       if (openTimerRef.current) clearTimeout(openTimerRef.current)
-          if (closeTimerRef.current) clearTimeout(closeTimerRef.current)
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current)
     }
   }, [])
 
-          const isExpanded = isPinned || isHovered || isFocused
+  const isExpanded = isPinned || isHovered || isFocused
 
-          return (
-            <div className="relative flex h-screen w-full overflow-hidden" style={{ background: MAIN_BG }}>
-              {/* 3D Topographic Depth Canvas Background */}
-              <SpatialDepthCanvas enabled={depthEnabled} />
+  return (
+    <div className="relative flex h-screen w-full overflow-hidden" style={{ background: MAIN_BG }}>
+      {/* 3D Topographic Depth Canvas Background */}
+      <SpatialDepthCanvas enabled={depthEnabled} />
 
-              {/* Desktop In-Flow Hover-Expandable Sidebar */}
-              <aside
-                onMouseEnter={handleMouseEnter}
-                onMouseLeave={handleMouseLeave}
-                onFocus={() => setIsFocused(true)}
-                onBlur={(e) => {
-                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                    setIsFocused(false)
-                  }
-                }}
-                className={cn(
-                  'hidden md:flex md:flex-col flex-shrink-0 h-screen relative z-30 overflow-hidden border-r border-border/80 transition-[width] duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] select-none',
-                  isExpanded
-                      ? 'w-[272px] bg-[hsl(var(--sidebar))]'
-                      : 'w-16 bg-[hsl(var(--sidebar))]'
-                )}
+      {/* Desktop In-Flow Hover-Expandable Sidebar */}
+      <aside
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+        onFocus={() => setIsFocused(true)}
+        onBlur={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+            setIsFocused(false)
+          }
+        }}
+        className={cn(
+          'hidden md:flex md:flex-col flex-shrink-0 h-screen relative z-30 overflow-hidden border-r border-border/80 transition-[width] duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] select-none',
+          isExpanded
+            ? 'w-[272px] bg-[hsl(var(--sidebar))]'
+            : 'w-16 bg-[hsl(var(--sidebar))]'
+        )}
+      >
+        <DesktopSidebarContent
+          pathname={pathname}
+          isExpanded={isExpanded}
+          isPinned={isPinned}
+          onTogglePin={handleTogglePin}
+          connected={connected}
+          lastUpdate={lastUpdate}
+          notifPermission={notifPermission}
+          requestNotifPermission={requestNotifPermission}
+          depthEnabled={depthEnabled}
+          setDepthEnabled={setDepthEnabled}
+          isometricMode={isometricMode}
+          setIsometricMode={setIsometricMode}
+        />
+      </aside>
+
+      {/* Mobile Header */}
+      <div
+        className="md:hidden fixed top-0 left-0 right-0 z-40 flex items-center px-4 h-14 border-b border-border/80"
+        style={{ background: BG }}
+      >
+        <button
+          onClick={() => setMobileOpen(true)}
+          className="p-1.5 rounded-lg text-foreground hover:bg-[hsl(var(--sidebar-active))]"
+        >
+          <Menu className="h-5 w-5" />
+        </button>
+        <div className="ml-3">
+          <AegisLogo />
+        </div>
+        <div className="ml-auto flex items-center gap-1.5">
+          <span
+            className="w-1.5 h-1.5 rounded-full"
+            style={{
+              background: connected ? 'hsl(150 18% 44%)' : 'hsl(0 0% 60%)',
+              boxShadow: connected ? '0 0 0 2px hsl(150 18% 44% / 0.25)' : 'none',
+            }}
+          />
+          <span
+            className="text-[10px]"
+            style={{ color: connected ? 'hsl(150 18% 40%)' : 'hsl(var(--muted-foreground))' }}
+          >
+            {connected ? 'Live' : '…'}
+          </span>
+        </div>
+      </div>
+
+      {/* Mobile Sidebar Overlay */}
+      {mobileOpen && (
+        <>
+          <div
+            className="md:hidden fixed inset-0 z-50 bg-black/40 backdrop-blur-sm"
+            onClick={() => setMobileOpen(false)}
+          />
+          <aside
+            className="md:hidden fixed inset-y-0 left-0 z-50 flex flex-col w-64 border-r border-border/80 shadow-2xl"
+            style={{ background: BG }}
+          >
+            <div className="flex items-center justify-end px-4 pt-4">
+              <button
+                onClick={() => setMobileOpen(false)}
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground"
               >
-                <DesktopSidebarContent
-                  pathname={pathname}
-                  isExpanded={isExpanded}
-                  isPinned={isPinned}
-                  onTogglePin={handleTogglePin}
-                  connected={connected}
-                  lastUpdate={lastUpdate}
-                  notifPermission={notifPermission}
-                  requestNotifPermission={requestNotifPermission}
-                  depthEnabled={depthEnabled}
-                  setDepthEnabled={setDepthEnabled}
-                  isometricMode={isometricMode}
-                  setIsometricMode={setIsometricMode}
-                />
-              </aside>
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <MobileSidebarContent
+              pathname={pathname}
+              onLinkClick={() => setMobileOpen(false)}
+              connected={connected}
+              lastUpdate={lastUpdate}
+              notifPermission={notifPermission}
+              requestNotifPermission={requestNotifPermission}
+              depthEnabled={depthEnabled}
+              setDepthEnabled={setDepthEnabled}
+              isometricMode={isometricMode}
+              setIsometricMode={setIsometricMode}
+            />
+          </aside>
+        </>
+      )}
 
-              {/* Mobile Header */}
-              <div
-                className="md:hidden fixed top-0 left-0 right-0 z-40 flex items-center px-4 h-14 border-b border-border/80"
-                style={{ background: BG }}
-              >
-                <button
-                  onClick={() => setMobileOpen(true)}
-                  className="p-1.5 rounded-lg text-foreground hover:bg-[hsl(var(--sidebar-active))]"
-                >
-                  <Menu className="h-5 w-5" />
-                </button>
-                <div className="ml-3">
-                  <AegisLogo />
-                </div>
-                <div className="ml-auto flex items-center gap-1.5">
-                  <span
-                    className="w-1.5 h-1.5 rounded-full"
-                    style={{
-                      background: connected ? 'hsl(150 18% 44%)' : 'hsl(0 0% 60%)',
-                      boxShadow: connected ? '0 0 0 2px hsl(150 18% 44% / 0.25)' : 'none',
-                    }}
-                  />
-                  <span
-                    className="text-[10px]"
-                    style={{ color: connected ? 'hsl(150 18% 40%)' : 'hsl(var(--muted-foreground))' }}
-                  >
-                    {connected ? 'Live' : '…'}
-                  </span>
-                </div>
-              </div>
+      {/* Main Content Column — smoothly shifts and resizes beside the sidebar */}
+      <div className="flex flex-col flex-1 min-w-0 h-screen overflow-hidden relative z-10">
+        <div className="pt-14 md:pt-0 shrink-0">
+          <StatusBar />
+        </div>
+        <main className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 relative z-10">
+          <div className="max-w-7xl mx-auto px-4 py-6 md:px-8 md:py-8">
+            <SpatialStage isometric={isometricMode}>
+              {children}
+            </SpatialStage>
+          </div>
+        </main>
+      </div>
 
-              {/* Mobile Sidebar Overlay */}
-              {mobileOpen && (
-                <>
-                  <div
-                    className="md:hidden fixed inset-0 z-50 bg-black/40 backdrop-blur-sm"
-                    onClick={() => setMobileOpen(false)}
-                  />
-                  <aside
-                    className="md:hidden fixed inset-y-0 left-0 z-50 flex flex-col w-64 border-r border-border/80 shadow-2xl"
-                    style={{ background: BG }}
-                  >
-                    <div className="flex items-center justify-end px-4 pt-4">
-                      <button
-                        onClick={() => setMobileOpen(false)}
-                        className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground"
-                      >
-                        <X className="h-5 w-5" />
-                      </button>
-                    </div>
-                    <MobileSidebarContent
-                      pathname={pathname}
-                      onLinkClick={() => setMobileOpen(false)}
-                      connected={connected}
-                      lastUpdate={lastUpdate}
-                      notifPermission={notifPermission}
-                      requestNotifPermission={requestNotifPermission}
-                      depthEnabled={depthEnabled}
-                      setDepthEnabled={setDepthEnabled}
-                      isometricMode={isometricMode}
-                      setIsometricMode={setIsometricMode}
-                    />
-                  </aside>
-                </>
-              )}
-
-                  {/* Main Content Column — smoothly shifts and resizes beside the sidebar */}
-                  <div className="flex flex-col flex-1 min-w-0 h-screen overflow-hidden relative z-10">
-                    <div className="pt-14 md:pt-0 shrink-0">
-                      <StatusBar />
-                    </div>
-                      <main className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 relative z-10">
-                        <div className="max-w-7xl mx-auto px-4 py-6 md:px-8 md:py-8">
-                          <SpatialStage isometric={isometricMode}>
-                            {children}
-                          </SpatialStage>
-                        </div>
-                      </main>
-                  </div>
-
-                  {/* Block Alert Toasts */}
-                  <BlockAlertToast alerts={alerts} dismissAlert={dismissAlert} />
-                </div>
-                )
+      {/* Block Alert Toasts */}
+      <BlockAlertToast alerts={alerts} dismissAlert={dismissAlert} />
+    </div>
+  )
 }
 

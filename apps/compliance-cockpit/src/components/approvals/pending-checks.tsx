@@ -206,7 +206,7 @@ export function PendingChecks() {
         <PasskeyStepUpModal
           isOpen={Boolean(passkeyCheck)}
           onClose={() => setPasskeyCheck(null)}
-          agentName={friendlyAgent(passkeyCheck.agent_id)}
+          agentName={passkeyCheck.agent_name || friendlyAgent(passkeyCheck.agent_id)}
           payee={passkeyCheck.arguments?.payee || passkeyCheck.arguments?.destination || passkeyCheck.arguments?.merchant || 'Requested Payee'}
           amountPaise={Number(passkeyCheck.arguments?.amount_paise || (passkeyCheck.arguments?.amount ? Number(passkeyCheck.arguments.amount) * 100 : 485000))}
           thresholdPaise={200000}
@@ -296,7 +296,7 @@ function HeldCallCard({ check, loading, isExiting, onTriggerPasskey, onDecide }:
             )}
           </div>
           <p className="text-[12px] mt-0.5" style={{ color: MUTED }}>
-            {friendlyAgent(check.agent_id)} wants to run <span className="font-mono">{check.tool_name}</span>
+            {check.agent_name || friendlyAgent(check.agent_id)} wants to run <span className="font-mono">{check.tool_name}</span>
           </p>
         </div>
         <LiveTimer since={check.created_at} />

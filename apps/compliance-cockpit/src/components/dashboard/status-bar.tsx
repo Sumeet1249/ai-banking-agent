@@ -138,10 +138,9 @@ export function StatusBar() {
 
   return (
     <div
-      className="flex items-center gap-4 px-4 py-1.5 text-xs flex-wrap"
+      className="flex items-center gap-4 px-4 py-1.5 text-xs flex-wrap backdrop-blur-xl border-b border-border/80"
       style={{
-        background: BG,
-        borderBottom: `1px solid ${BORDER}`,
+        background: 'hsl(var(--background) / 0.84)',
         color: MUTED,
       }}
     >

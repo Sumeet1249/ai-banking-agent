@@ -16,6 +16,7 @@ import {
   SpendingCategory,
   CanonicalAutonomyMode,
 } from '@agentguard/core-schema'
+import { friendlyAgent } from '@/lib/friendly-names'
 import { useCountUp } from '@/hooks/useCountUp'
 import { use3DTilt } from '@/hooks/use3DTilt'
 import { BudgetSpendSimulatorDrawer } from '@/components/budget-pools/budget-spend-simulator'
