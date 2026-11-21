@@ -33,6 +33,7 @@ export function PasskeyStepUpModal({
   const [checkedPayee, setCheckedPayee] = useState(false)
   const [phase, setPhase] = useState<'review' | 'verifying' | 'signed'>('review')
   const [barMounted, setBarMounted] = useState(false)
+  const [cryptoSignatureDigest, setCryptoSignatureDigest] = useState<string | null>(null)
 
   const overagePaise = Math.max(0, amountPaise - thresholdPaise)
   const animatedAmount = useCountUp(isModalOpen ? amountPaise : 0, 520)
@@ -46,6 +47,7 @@ export function PasskeyStepUpModal({
       setCheckedPayee(false)
       setPhase('review')
       setBarMounted(false)
+      setCryptoSignatureDigest(null)
       return
     }
     const timer = window.setTimeout(() => setBarMounted(true), 60)
@@ -62,8 +64,6 @@ export function PasskeyStepUpModal({
   if (!isModalOpen) return null
 
   const canConfirm = checkedIntent && checkedPayee && phase === 'review'
-
-  const [cryptoSignatureDigest, setCryptoSignatureDigest] = useState<string | null>(null)
 
   const handleConfirm = async () => {
     if (!canConfirm) return
