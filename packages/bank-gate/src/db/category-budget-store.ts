@@ -127,15 +127,33 @@ export interface BudgetAuditEventRow {
   event_payload: string;
 }
 
+export interface AgentBlockHistoryRow {
+  block_id: string;
+  agent_id: string;
+  tenant_id: string;
+  customer_ref: string;
+  category_id: string;
+  amount_paise: number;
+  merchant_name: string;
+  reason: string;
+  violations: string;
+  timestamp: number;
+}
+
 export class CategoryBudgetStore {
+  public auditDb: Database.Database;
+
   constructor(
     private db: Database.Database,
     private logger?: Logger,
+    auditDb?: Database.Database,
   ) {
+    this.auditDb = auditDb || db;
     this.init();
   }
 
   public init(): void {
+    // 1. Operational Category & Budget Tables on Main DB
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS category_budget_pools (
         pool_id TEXT PRIMARY KEY,
@@ -293,7 +311,10 @@ export class CategoryBudgetStore {
         status TEXT NOT NULL DEFAULT 'VERIFIED',
         provenance_metadata TEXT
       );
+    `);
 
+    // 2. Separate Dedicated Audit Database Schema
+    this.auditDb.exec(`
       CREATE TABLE IF NOT EXISTS budget_audit_events (
         event_id TEXT PRIMARY KEY,
         sequence_number INTEGER NOT NULL UNIQUE,
@@ -311,10 +332,51 @@ export class CategoryBudgetStore {
 
       CREATE INDEX IF NOT EXISTS idx_bae_tenant_cust ON budget_audit_events(tenant_id, customer_ref);
       CREATE INDEX IF NOT EXISTS idx_bae_seq ON budget_audit_events(sequence_number);
+
+      CREATE TABLE IF NOT EXISTS agent_block_history (
+        block_id TEXT PRIMARY KEY,
+        agent_id TEXT NOT NULL,
+        tenant_id TEXT NOT NULL,
+        customer_ref TEXT NOT NULL,
+        category_id TEXT NOT NULL,
+        amount_paise INTEGER NOT NULL,
+        merchant_name TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        violations TEXT NOT NULL,
+        timestamp INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_abh_agent ON agent_block_history(agent_id);
+      CREATE INDEX IF NOT EXISTS idx_abh_timestamp ON agent_block_history(timestamp);
     `);
+
+    // If auditDb is separate from main DB, migrate legacy events if needed
+    if (this.auditDb !== this.db) {
+      try {
+        const auditCount = (this.auditDb.prepare('SELECT count(*) as count FROM budget_audit_events').get() as any)?.count || 0;
+        if (auditCount === 0) {
+          const oldEvents = this.db.prepare('SELECT * FROM budget_audit_events ORDER BY sequence_number ASC').all() as BudgetAuditEventRow[];
+          const insertStmt = this.auditDb.prepare(`
+            INSERT OR IGNORE INTO budget_audit_events (
+              event_id, sequence_number, prev_event_hash, event_hash,
+              tenant_id, customer_ref, actor, operation, entity_id, policy_version, timestamp, event_payload
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+          for (const ev of oldEvents) {
+            insertStmt.run(
+              ev.event_id, ev.sequence_number, ev.prev_event_hash, ev.event_hash,
+              ev.tenant_id, ev.customer_ref, ev.actor, ev.operation, ev.entity_id,
+              ev.policy_version, ev.timestamp, ev.event_payload
+            );
+          }
+        }
+      } catch {
+        // Migration graceful ignore
+      }
+    }
   }
 
-  // ── AUDIT HASH CHAINING ──────────────────────────────────────────────────
+  // ── AUDIT HASH CHAINING (SEPARATE AUDIT DB) ──────────────────────────────
 
   public appendAuditEventInternal(
     tenantId: string,
@@ -326,7 +388,7 @@ export class CategoryBudgetStore {
     payload: Record<string, any>,
     now: number,
   ): BudgetAuditEventRow {
-    const lastEvent = this.db
+    const lastEvent = this.auditDb
       .prepare('SELECT sequence_number, event_hash FROM budget_audit_events ORDER BY sequence_number DESC LIMIT 1')
       .get() as { sequence_number: number; event_hash: string } | undefined;
 
@@ -338,7 +400,7 @@ export class CategoryBudgetStore {
     const hashInput = `${sequenceNumber}|${prevHash}|${tenantId}|${customerRef}|${actor}|${operation}|${entityId}|${policyVersion}|${now}|${payloadStr}`;
     const eventHash = createHash('sha256').update(hashInput).digest('hex');
 
-    this.db
+    this.auditDb
       .prepare(`
         INSERT INTO budget_audit_events (
           event_id, sequence_number, prev_event_hash, event_hash,
@@ -1142,7 +1204,7 @@ export class CategoryBudgetStore {
   }
 
   public listAuditEvents(tenantId: string, customerRef: string, limit: number = 50): BudgetAuditEventRow[] {
-    return this.db
+    return this.auditDb
       .prepare(`
         SELECT * FROM budget_audit_events
         WHERE tenant_id = ? AND customer_ref = ?
@@ -1150,6 +1212,78 @@ export class CategoryBudgetStore {
         LIMIT ?
       `)
       .all(tenantId, customerRef, limit) as BudgetAuditEventRow[];
+  }
+
+  public recordBlockHistory(params: {
+    agent_id: string;
+    tenant_id: string;
+    customer_ref: string;
+    category_id: string;
+    amount_paise: number;
+    merchant_name?: string;
+    reason: string;
+    violations: string[];
+    timestamp: number;
+  }): void {
+    const blockId = `block_${params.timestamp}_${Math.random().toString(36).substring(2, 7)}`;
+    this.auditDb
+      .prepare(`
+        INSERT INTO agent_block_history (
+          block_id, agent_id, tenant_id, customer_ref, category_id,
+          amount_paise, merchant_name, reason, violations, timestamp
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        blockId,
+        params.agent_id,
+        params.tenant_id,
+        params.customer_ref,
+        params.category_id,
+        params.amount_paise,
+        params.merchant_name || 'Direct / Unknown Merchant',
+        params.reason,
+        JSON.stringify(params.violations),
+        params.timestamp,
+      );
+
+    // Also append to tamper-evident hash-chained audit log in separate audit DB
+    this.appendAuditEventInternal(
+      params.tenant_id,
+      params.customer_ref,
+      params.agent_id,
+      'AGENT_PAYMENT_BLOCKED',
+      blockId,
+      1,
+      {
+        category_id: params.category_id,
+        amount_paise: params.amount_paise,
+        merchant_name: params.merchant_name,
+        reason: params.reason,
+        violations: params.violations,
+      },
+      params.timestamp,
+    );
+  }
+
+  public listBlockHistory(tenantId: string, customerRef: string, agentId?: string): AgentBlockHistoryRow[] {
+    if (agentId) {
+      return this.auditDb
+        .prepare(`
+          SELECT * FROM agent_block_history
+          WHERE tenant_id = ? AND customer_ref = ? AND agent_id = ?
+          ORDER BY timestamp DESC
+          LIMIT 100
+        `)
+        .all(tenantId, customerRef, agentId) as AgentBlockHistoryRow[];
+    }
+    return this.auditDb
+      .prepare(`
+        SELECT * FROM agent_block_history
+        WHERE tenant_id = ? AND customer_ref = ?
+        ORDER BY timestamp DESC
+        LIMIT 100
+      `)
+      .all(tenantId, customerRef) as AgentBlockHistoryRow[];
   }
 
   public markReservationPendingReconciliation(reservationId: string, reason: string): void {

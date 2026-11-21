@@ -51,6 +51,7 @@ export class BankGateApp {
   public permitVerifier: PermitVerifierService;
   public executor: TransactionExecutorService;
   public reconciliation: FinancialReconciliationService;
+  public auditDb: Database.Database;
 
   constructor(
     private db: Database.Database,
@@ -58,12 +59,21 @@ export class BankGateApp {
     private config: BankGateConfig = bankGateConfig,
     private clock: Clock = new SystemClock(),
     private logger: Logger = pino({ level: 'info' }),
+    auditDb?: Database.Database,
   ) {
     this.app = express();
+    if (auditDb) {
+      this.auditDb = auditDb;
+    } else if (this.db.name === '' || this.db.name === ':memory:') {
+      this.auditDb = new Database(':memory:');
+    } else {
+      this.auditDb = new Database(this.config.auditDbPath || 'audit_ledger.db');
+    }
+
     this.store = new BankGateStore(this.db, this.logger);
-    this.categoryStore = new CategoryBudgetStore(this.db, this.logger);
+    this.categoryStore = new CategoryBudgetStore(this.db, this.logger, this.auditDb);
     this.merchantService = new MerchantIntelligenceService(this.db, this.logger);
-    this.merkleAudit = new MerkleAuditService(this.db, process.env.WITNESS_URL || 'http://localhost:5000', this.logger);
+    this.merkleAudit = new MerkleAuditService(this.auditDb, process.env.WITNESS_URL || 'http://localhost:5000', this.logger);
     this.categoryBudget = new CategoryBudgetService(
       this.categoryStore,
       this.ledgerClient,
@@ -99,6 +109,18 @@ export class BankGateApp {
   }
 
   private configureMiddleware(): void {
+    // CORS Support for Cockpit UI
+    this.app.use((_req: Request, res: Response, next: NextFunction) => {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-tenant-id, x-customer-ref, x-correlation-id, x-request-id');
+      if (_req.method === 'OPTIONS') {
+        res.sendStatus(204);
+        return;
+      }
+      next();
+    });
+
     this.app.use(express.json());
 
     // Correlation ID & Context Middleware
@@ -518,6 +540,77 @@ export class BankGateApp {
       res.status(200).json({ approvals });
     });
 
+    this.app.post('/api/v1/approvals/:reservationId/decide', (req: Request, res: Response) => {
+      try {
+        const customerRef = (req.headers['x-customer-ref'] as string) || (req.query.customer_ref as string) || 'cust-101';
+        const { decision, biometric_token, reason } = req.body;
+        if (!decision || (decision !== 'APPROVE' && decision !== 'REJECT')) {
+          res.status(400).json({ error: 'Valid decision ("APPROVE" or "REJECT") required' });
+          return;
+        }
+        const outcome = this.categoryBudget.decidePendingApproval({
+          reservationId: req.params.reservationId,
+          decision,
+          biometricToken: biometric_token,
+          customerRef,
+          reason,
+        });
+        if (!outcome.success) {
+          res.status(400).json(outcome);
+          return;
+        }
+        res.status(200).json(outcome);
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    this.app.get('/api/v1/agents/block-history', (req: Request, res: Response) => {
+      const tenantId = (req.headers['x-tenant-id'] as string) || (req.query.tenant_id as string) || 'tenant-default';
+      const customerRef = (req.headers['x-customer-ref'] as string) || (req.query.customer_ref as string) || 'cust-101';
+      const agentId = req.query.agent_id as string | undefined;
+      const history = this.categoryBudget.listBlockHistory(tenantId, customerRef, agentId);
+      res.status(200).json({ block_history: history });
+    });
+
+    this.app.get('/api/v1/audit/db-status', (_req: Request, res: Response) => {
+      try {
+        const eventsCount = (this.auditDb.prepare('SELECT count(*) as c FROM budget_audit_events').get() as any)?.c || 0;
+        const blocksCount = (this.auditDb.prepare('SELECT count(*) as c FROM agent_block_history').get() as any)?.c || 0;
+        const merkleBatchesCount = (this.auditDb.prepare('SELECT count(*) as c FROM merkle_audit_batches').get() as any)?.c || 0;
+        const latestEvent = this.auditDb.prepare('SELECT sequence_number, event_hash, timestamp FROM budget_audit_events ORDER BY sequence_number DESC LIMIT 1').get();
+
+        res.status(200).json({
+          status: 'HEALTHY',
+          storage_mode: 'PHYSICALLY_SEPARATED',
+          operational_db: {
+            path: this.config.dbPath,
+            tables: ['category_budget_pools', 'budget_periods', 'category_budget_reservations', 'reservation_period_allocations', 'agent_budget_allocations', 'merchant_classifications'],
+          },
+          audit_db: {
+            path: this.config.auditDbPath || 'audit_ledger.db',
+            tables: ['budget_audit_events', 'agent_block_history', 'merkle_audit_batches'],
+            total_audit_events: eventsCount,
+            total_blocks_recorded: blocksCount,
+            total_merkle_batches: merkleBatchesCount,
+            latest_sequence: (latestEvent as any)?.sequence_number ?? 0,
+            latest_event_hash: (latestEvent as any)?.event_hash ?? null,
+            last_event_time: (latestEvent as any)?.timestamp ?? null,
+          },
+        });
+      } catch (err: any) {
+        res.status(500).json({ status: 'ERROR', error: err.message });
+      }
+    });
+
+    this.app.get('/api/v1/audit/events', (req: Request, res: Response) => {
+      const tenantId = (req.headers['x-tenant-id'] as string) || (req.query.tenant_id as string) || 'tenant-default';
+      const customerRef = (req.headers['x-customer-ref'] as string) || (req.query.customer_ref as string) || 'cust-101';
+      const limit = Number(req.query.limit || 50);
+      const events = this.categoryStore.listAuditEvents(tenantId, customerRef, limit);
+      res.status(200).json({ events });
+    });
+
     this.app.get('/api/v1/exceptions', (req: Request, res: Response) => {
       const tenantId = (req.headers['x-tenant-id'] as string) || (req.query.tenant_id as string) || 'tenant-default';
       const customerRef = (req.headers['x-customer-ref'] as string) || (req.query.customer_ref as string) || 'cust-101';
@@ -594,10 +687,92 @@ export class BankGateApp {
 
 if (require.main === module) {
   const db = new Database(bankGateConfig.dbPath);
+  const auditDb = new Database(bankGateConfig.auditDbPath);
+  db.pragma('journal_mode = WAL');
+  auditDb.pragma('journal_mode = WAL');
+
   const ledgerClient = process.env.LEDGER_CLIENT === 'http'
     ? new HttpLedgerClient(bankGateConfig.ledgerAdapterUrl)
     : new FakeLedgerClient();
-  const app = new BankGateApp(db, ledgerClient, bankGateConfig);
+  const app = new BankGateApp(db, ledgerClient, bankGateConfig, new SystemClock(), pino({ level: 'info' }), auditDb);
+
+  // Seed demo block history & pending approvals if empty
+  try {
+    const blockCount = (auditDb.prepare('SELECT count(*) as c FROM agent_block_history').get() as any)?.c || 0;
+    if (blockCount === 0) {
+      const now = Date.now();
+      app.categoryStore.recordBlockHistory({
+        agent_id: 'agent-procurement-bot',
+        tenant_id: 'tenant-default',
+        customer_ref: 'cust-101',
+        category_id: 'GAMBLING_OR_RISK',
+        amount_paise: 1250000,
+        merchant_name: 'HighStakes Casino & Sportsbook',
+        reason: 'CATEGORY_BLOCKED_FOR_AGENT',
+        violations: ['Category GAMBLING_OR_RISK is explicitly blocked for agent agent-procurement-bot in security mandate'],
+        timestamp: now - 3600000 * 2,
+      });
+
+      app.categoryStore.recordBlockHistory({
+        agent_id: 'agent-shopping-bot-01',
+        tenant_id: 'tenant-default',
+        customer_ref: 'cust-101',
+        category_id: 'SHOPPING',
+        amount_paise: 720000,
+        merchant_name: 'Apex Luxury Gadgets Bangalore',
+        reason: 'EXCEEDS_DAILY_LIMIT',
+        violations: ['Projected DAILY total ₹7,200 exceeds allocated daily cap ₹5,000 for pool_shopping_01'],
+        timestamp: now - 3600000 * 5,
+      });
+
+      app.categoryStore.recordBlockHistory({
+        agent_id: 'agent-travel-assistant',
+        tenant_id: 'tenant-default',
+        customer_ref: 'cust-101',
+        category_id: 'UTILITIES',
+        amount_paise: 1840000,
+        merchant_name: 'DarkNet Anonymous VPN Rail',
+        reason: 'MERCHANT_BLOCKED_BY_POLICY',
+        violations: ['Target merchant is blacklisted under high-risk sanctions & fraudulent MCC classification list'],
+        timestamp: now - 3600000 * 8,
+      });
+
+      app.categoryStore.recordBlockHistory({
+        agent_id: 'agent-travel-assistant',
+        tenant_id: 'tenant-default',
+        customer_ref: 'cust-101',
+        category_id: 'TRAVEL_AND_TRANSPORT',
+        amount_paise: 150000,
+        merchant_name: 'Express Chauffeur Luxury Limousine',
+        reason: 'EXCEEDS_AGENT_PER_TRANSACTION_LIMIT',
+        violations: ['Requested amount ₹1,500 exceeds agent per-transaction limit ₹1,000'],
+        timestamp: now - 3600000 * 12,
+      });
+    }
+
+    // Seed a pending approval if none exist
+    const pendingCount = (db.prepare("SELECT count(*) as c FROM category_budget_reservations WHERE saga_state = 'REQUIRES_HUMAN_APPROVAL'").get() as any)?.c || 0;
+    if (pendingCount === 0) {
+      const now = Date.now();
+      db.prepare(`
+        INSERT OR IGNORE INTO category_budget_reservations (
+          reservation_id, pool_id, tenant_id, customer_ref, agent_id, workflow_id,
+          request_id, idempotency_key, transaction_digest, category_id, amount_paise,
+          currency, pool_policy_version, status, saga_state, release_reason, violations, created_at, expires_at
+        ) VALUES (
+          'res_pending_demo_01', 'pool_transport_01', 'tenant-default', 'cust-101',
+          'agent-travel-assistant', 'wf-travel-corridor', 'req-travel-demo-99', 'idem-travel-demo-99',
+          'digest_sha256_travel_approval_required', 'TRAVEL_AND_TRANSPORT', 485000,
+          'INR', 1, 'RESERVED', 'REQUIRES_HUMAN_APPROVAL', 'Pool autonomy requires explicit confirmation (ASK_BEFORE_PAYMENT)',
+          '["Transaction amount ₹4,850 exceeds autonomous threshold; customer biometric passkey approval required"]',
+          ?, ?
+        )
+      `).run(now - 60000, now + 1800000);
+    }
+  } catch (seedErr) {
+    console.warn('Demo seed notice:', seedErr);
+  }
+
   app.listen(bankGateConfig.port).catch((err) => {
     console.error('Failed to start Bank Gate', err);
     process.exit(1);

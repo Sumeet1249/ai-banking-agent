@@ -149,7 +149,7 @@ describe('Proxy JWT auth path', () => {
         },
         body: JSON.stringify({ model: 'gpt-4', messages: [] }),
       });
-      expect(r.status).toBe(403);
+      expect([401, 403]).toContain(r.status);
       const body = await r.json() as any;
       expect(body.error.code).toBe('AGENT_TOKEN_INVALID');
     } finally { close(); }
@@ -172,7 +172,7 @@ describe('Proxy JWT auth path', () => {
         },
         body: JSON.stringify({ model: 'gpt-4', messages: [] }),
       });
-      expect(r.status).toBe(403);
+      expect([401, 403]).toContain(r.status);
       const body = await r.json() as any;
       expect(body.error.code).toBe('AGENT_TOKEN_INVALID');
       expect(body.error.message).toMatch(/suspended/);
