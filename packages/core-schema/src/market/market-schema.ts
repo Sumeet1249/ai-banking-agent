@@ -393,3 +393,21 @@ export const MarketAuditEventSchema = z.object({
   metadata_redacted: z.record(z.any()),
 });
 export type MarketAuditEvent = z.infer<typeof MarketAuditEventSchema>;
+
+// ── MARKET RESPONSE METADATA (TI-1) ─────────────────────────────────────────
+
+export const MarketResponseMetadataSchema = z.object({
+  provider: z.string(),
+  instrument: z.string().optional(),
+  exchange: IndianExchangeSchema.optional(),
+  source_timestamp: z.number().int().positive(),
+  retrieved_at: z.number().int().positive(),
+  data_delay_ms: z.number().int(),
+  currency: z.literal('INR').default('INR'),
+  entitlement_status: z.enum(['LICENSED', 'DELAYED_PUBLIC', 'SYNTHETIC_DEMO', 'UNENTITLED']),
+  is_synthetic: z.boolean(),
+  is_cached: z.boolean(),
+  environment: z.enum(['DEVELOPMENT', 'TEST', 'DEMO', 'PRODUCTION']),
+});
+export type MarketResponseMetadata = z.infer<typeof MarketResponseMetadataSchema>;
+

@@ -13,6 +13,8 @@ import {
   PortfolioHolding,
 } from '@agentguard/core-schema';
 import { IBrokerProvider } from '../providers/provider-interface';
+import { FinancialMath, CompoundingProjectionItem } from '../finance/financial-math';
+import { marketConfig } from '../config';
 
 export interface WealthAllocation {
   equityPercentage: number;
@@ -35,12 +37,7 @@ export interface SipScheduleSummary {
   }>;
 }
 
-export interface CompoundingProjection {
-  years: number;
-  projectedPortfolioValueInr: number;
-  totalInvestedInr: number;
-  projectedWealthGainInr: number;
-}
+export type CompoundingProjection = CompoundingProjectionItem;
 
 export interface PortfolioIntelligenceResult {
   tenantId: string;
@@ -61,7 +58,11 @@ export class PortfolioIntelligenceAgent {
 
   constructor(private readonly brokerProvider: IBrokerProvider) {}
 
-  async analyze(tenantId: string, customerRef: string): Promise<PortfolioIntelligenceResult> {
+  async analyze(
+    tenantId: string,
+    customerRef: string,
+    options?: { assumedAnnualCagrPercent?: number }
+  ): Promise<PortfolioIntelligenceResult> {
     const snapshot = await this.brokerProvider.getPortfolioSnapshot(tenantId, customerRef);
     const holdings = await this.brokerProvider.getHoldings(tenantId, customerRef);
     const sipSchedules = await this.brokerProvider.getSipSchedules(tenantId, customerRef);
@@ -124,37 +125,15 @@ export class PortfolioIntelligenceAgent {
       items: sipItems,
     };
 
-    // 3. Long-Term Compounding Projections (Future Value of Existing Corpus + Monthly SIPs)
-    // Assume blended 11.5% p.a. conservative long-term nominal Indian growth rate (Equity + MFs + Gold)
-    const annualRate = 0.115;
-    const monthlyRate = annualRate / 12;
+    // 3. Long-Term Compounding Projections (Configurable, Non-Guaranteed)
+    const assumedRate = options?.assumedAnnualCagrPercent ?? marketConfig.defaultCompoundingCagrPercent;
     const startingCorpus = totalInvested;
 
-    const calculateFV = (years: number): CompoundingProjection => {
-      const months = years * 12;
-      const corpusFV = startingCorpus * Math.pow(1 + monthlyRate, months);
-      // FV of annuity: P * (( (1+r)^n - 1 ) / r) * (1+r)
-      const sipFV =
-        totalMonthlyCommitmentInr > 0
-          ? totalMonthlyCommitmentInr * ((Math.pow(1 + monthlyRate, months) - 1) / monthlyRate) * (1 + monthlyRate)
-          : 0;
-      const totalFV = Math.round(corpusFV + sipFV);
-      const totalInvestedOverTime = Math.round(startingCorpus + totalMonthlyCommitmentInr * months);
-      const gain = Math.max(0, totalFV - totalInvestedOverTime);
-
-      return {
-        years,
-        projectedPortfolioValueInr: totalFV,
-        totalInvestedInr: totalInvestedOverTime,
-        projectedWealthGainInr: gain,
-      };
-    };
-
     const projections: CompoundingProjection[] = [
-      calculateFV(3),
-      calculateFV(5),
-      calculateFV(10),
-      calculateFV(15),
+      FinancialMath.calculateCompoundingProjection(startingCorpus, totalMonthlyCommitmentInr, assumedRate, 3),
+      FinancialMath.calculateCompoundingProjection(startingCorpus, totalMonthlyCommitmentInr, assumedRate, 5),
+      FinancialMath.calculateCompoundingProjection(startingCorpus, totalMonthlyCommitmentInr, assumedRate, 10),
+      FinancialMath.calculateCompoundingProjection(startingCorpus, totalMonthlyCommitmentInr, assumedRate, 15),
     ];
 
     // 4. Portfolio Health & Rebalancing Notes
