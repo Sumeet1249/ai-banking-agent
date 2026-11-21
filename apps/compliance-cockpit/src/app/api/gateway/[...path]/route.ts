@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { serverAgentStore } from '@/lib/server-agent-store'
 import { mockTraces } from '@/lib/mock-traces'
 
-const BASE = process.env['GATEWAY_URL'] || 'http://localhost:8080'
+const BASE = process.env['GATEWAY_URL'] || 'http://localhost:8081'
 
 // Demo mode: when this is a public-facing demo build without a real
 // gateway behind it, short-circuit gateway-proxy calls with sensible
