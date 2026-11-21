@@ -14,8 +14,12 @@ import {
 } from 'lucide-react'
 import { AttackLabView, SCENARIOS, AttackScenario } from '@/components/banking/attack-lab-view'
 import { Security3DTopology } from '@/components/topology/security-3d-topology'
-import { PasskeyStepUpModal } from '@/components/banking/passkey-stepup-modal'
-import { MerkleChainVisualizer } from '@/components/banking/merkle-chain-visualizer'
+import { MandateGovernanceView } from '@/components/banking/mandate-governance-view'
+import { IdentityReplayView } from '@/components/banking/identity-replay-view'
+import { AnomalyDriftView } from '@/components/banking/anomaly-drift-view'
+import { StepupEscalationView } from '@/components/banking/stepup-escalation-view'
+import { MerkleLedgerView } from '@/components/banking/merkle-ledger-view'
+import { JudgeWalkthroughView } from '@/components/banking/judge-walkthrough-view'
 import { DashboardLayout } from '@/components/dashboard/layout'
 import { useCountUp } from '@/hooks/useCountUp'
 import { toast } from 'sonner'
@@ -126,9 +130,6 @@ export default function BankingDashboardPage() {
   const [animatingRay, setAnimatingRay] = useState<boolean>(false)
   const [simulationVerdict, setSimulationVerdict] = useState<'idle' | 'blocked' | 'breached'>('idle')
   const [tamperSimulated, setTamperSimulated] = useState<boolean>(false)
-  const [passkeyModalOpen, setPasskeyModalOpen] = useState<boolean>(false)
-  const [mandateActive, setMandateActive] = useState<boolean>(true)
-  const [mandateReadout, setMandateReadout] = useState<string | null>(null)
 
   // Bottom Live Wire Telemetry Drawer State
   const [telemetryDrawerOpen, setTelemetryDrawerOpen] = useState<boolean>(false)
@@ -149,7 +150,7 @@ export default function BankingDashboardPage() {
       type: 'system',
     },
     {
-      text: '[SYSTEM] Dual-Keyring loaded: Gateway (Ed25519) + Bank Gate (:4000) + Witness (:4002).',
+      text: '[SYSTEM] Dual-Keyring loaded: Gateway (Ed25519) + Bank Gate (:4000) + Witness (:5000).',
       time: '00:00:02',
       type: 'system',
     },
@@ -261,7 +262,7 @@ export default function BankingDashboardPage() {
             type: 'blocked' as const,
           },
           {
-            text: `[LEDGER] Merkle leaf generated and validated against Witness :4002.`,
+            text: `[LEDGER] Merkle leaf generated and validated against Witness :5000.`,
             time: finishTime,
             type: 'info' as const,
           },
@@ -660,8 +661,8 @@ export default function BankingDashboardPage() {
                       globalFreeze
                         ? 'bg-rose-500/10 text-rose-500 border-rose-500/30'
                         : protectionEnabled
-                        ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
-                        : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'
+                          ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                          : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'
                     )}
                   >
                     {globalFreeze ? (
@@ -727,399 +728,54 @@ export default function BankingDashboardPage() {
 
           {/* FEATURE 03: SCOPED DELEGATION & MANDATES */}
           {activeFeature === 'mandates' && (
-            <div className="rounded-xl border border-border bg-card p-6 shadow-sm space-y-4 card-depth">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <div>
-                  <h2 className="text-base font-bold text-foreground">
-                    Scoped Delegation &amp; Mandate Governance (Key #1)
-                  </h2>
-                  <p className="text-xs text-muted-foreground">
-                    Customers grant strictly limited, time-bound, and instantly revocable authority
-                  </p>
-                </div>
-                <span
-                  className={cn(
-                    'text-xs font-mono px-2.5 py-1 rounded border font-bold transition-colors',
-                    mandateActive
-                      ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
-                      : 'text-rose-600 dark:text-rose-400 bg-rose-500/10 border-rose-500/20'
-                  )}
-                >
-                  {mandateReadout || (mandateActive ? '<1s Propagation' : 'REVOKED (0.4ms)')}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="p-4 rounded-xl border border-border bg-secondary/20 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-xs font-bold text-foreground">MND_ELEC_101 (v1)</span>
-                    <span
-                      className={cn(
-                        'px-2 py-0.5 rounded text-[10px] font-bold border transition-colors',
-                        mandateActive
-                          ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
-                          : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30'
-                      )}
-                    >
-                      {mandateActive ? 'ACTIVE' : 'REVOKED'}
-                    </span>
-                  </div>
-                  <div className="text-xs text-muted-foreground space-y-1">
-                    <div>
-                      Authorized Agent: <strong className="text-foreground">AGENT_ELEC_01</strong>
-                    </div>
-                    <div>
-                      Action Purpose: <strong className="text-foreground">electricity_bill_payment</strong>
-                    </div>
-                    <div>
-                      Per-Txn Cap: <strong className="text-foreground font-mono">₹5,000.00 (500000 paise)</strong>
-                    </div>
-                    <div>
-                      Daily Cap: <strong className="text-foreground font-mono">₹10,000.00</strong>
-                    </div>
-                    <div>
-                      Allowed Payees: <strong className="text-foreground font-mono">[BESCOM, POWER_01]</strong>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (mandateActive) {
-                        setMandateActive(false)
-                        setMandateReadout('0.4ms synced to Bank Gate :4000')
-                        toast.error('Mandate MND_ELEC_101 REVOKED', {
-                          description: 'Stale token invalidated in 0.4ms across all Bank Gate instances.',
-                        })
-                      } else {
-                        setMandateActive(true)
-                        setMandateReadout('<1s Propagation')
-                        toast.success('Mandate MND_ELEC_101 Restored', {
-                          description: 'Scoped delegation reinstated with ₹5,000 per-txn cap.',
-                        })
-                      }
-                      setCompletedFeatures((prev) => ({ ...prev, mandates: true }))
-                    }}
-                    className={cn(
-                      'w-full py-2 rounded-lg text-xs font-bold border transition flex items-center justify-center gap-2 active:scale-95',
-                      mandateActive
-                        ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 hover:bg-rose-500 hover:text-white'
-                        : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 hover:bg-emerald-500 hover:text-white'
-                    )}
-                  >
-                    {mandateActive ? 'Simulate Instant Revocation' : 'Restore Mandate Policy'}
-                  </button>
-                </div>
-
-                <div className="p-4 rounded-xl border border-border bg-secondary/20 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-xs font-bold text-foreground">MND_WATER_102 (v1)</span>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
-                      ACTIVE
-                    </span>
-                  </div>
-                  <div className="text-xs text-muted-foreground space-y-1">
-                    <div>
-                      Authorized Agent: <strong className="text-foreground">AGENT_WATER_01</strong>
-                    </div>
-                    <div>
-                      Action Purpose: <strong className="text-foreground">water_utility_invoice</strong>
-                    </div>
-                    <div>
-                      Per-Txn Cap: <strong className="text-foreground font-mono">₹2,000.00 (200000 paise)</strong>
-                    </div>
-                    <div>
-                      Daily Cap: <strong className="text-foreground font-mono">₹4,000.00</strong>
-                    </div>
-                    <div>
-                      Allowed Payees: <strong className="text-foreground font-mono">[BWSSB_WATER]</strong>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      toast.warning('Mandate MND_WATER_102 Revoked', {
-                        description: 'Stale token invalidated across all Bank Gate instances in <1s.',
-                      })
-                      setCompletedFeatures((prev) => ({ ...prev, mandates: true }))
-                    }}
-                    className="w-full py-2 bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 hover:bg-rose-500 hover:text-white rounded-lg text-xs font-bold transition active:scale-95"
-                  >
-                    Simulate Instant Revocation
-                  </button>
-                </div>
-              </div>
-            </div>
+            <MandateGovernanceView
+              onValidated={() => setCompletedFeatures((prev) => ({ ...prev, mandates: true }))}
+            />
           )}
 
           {/* FEATURE 04: AGENT IDENTITY & KEY MANAGEMENT */}
           {activeFeature === 'identity' && (
-            <div className="rounded-xl border border-border bg-card p-6 shadow-sm space-y-4 card-depth">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <div>
-                  <h2 className="text-base font-bold text-foreground">
-                    Agent Identity &amp; Anti-Replay Engine (Key #2)
-                  </h2>
-                  <p className="text-xs text-muted-foreground">
-                    Asymmetric Ed25519 signing and atomic single-use nonce consumption
-                  </p>
-                </div>
-                <span className="px-2.5 py-1 bg-indigo-500/10 text-indigo-500 text-xs font-semibold rounded border border-indigo-500/20">
-                  Ed25519 Cryptographic Pair
-                </span>
-              </div>
-
-              <div className="p-4 rounded-xl border border-border bg-secondary/20 space-y-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-500">
-                    <ShieldCheck className="h-5 w-5" strokeWidth={1.8} />
-                  </div>
-                  <div>
-                    <div className="text-sm font-bold text-foreground">Registered Keyring: Bank Gate TrustedKeyring</div>
-                    <div className="text-xs text-muted-foreground font-mono">
-                      Active Key ID: key_gw_ed25519_2026_v1 · Grace Period: 180s
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 text-xs">
-                  <div className="p-3 bg-card border border-border rounded-lg">
-                    <span className="font-semibold text-foreground block">Anti-Replay Nonce</span>
-                    <span className="text-muted-foreground text-[11px] mt-0.5 block">
-                      UUIDv4 atomic consumption prevents duplicate execution.
-                    </span>
-                  </div>
-                  <div className="p-3 bg-card border border-border rounded-lg">
-                    <span className="font-semibold text-foreground block">Bank Gate Air-Gap</span>
-                    <span className="text-muted-foreground text-[11px] mt-0.5 block">
-                      Bank Gate (:4000) independently verifies permit before debit.
-                    </span>
-                  </div>
-                  <div className="p-3 bg-card border border-border rounded-lg">
-                    <span className="font-semibold text-foreground block">KMS Abstraction</span>
-                    <span className="text-muted-foreground text-[11px] mt-0.5 block">
-                      Hardware-backed HSM ready (FIPS 140-2 Level 3 / PKCS#11).
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <IdentityReplayView
+              onValidated={() => setCompletedFeatures((prev) => ({ ...prev, identity: true }))}
+            />
           )}
 
           {/* FEATURE 05: ANOMALY & INTENT DRIFT */}
           {activeFeature === 'anomaly' && (
-            <div className="rounded-xl border border-border bg-card p-6 shadow-sm space-y-4 card-depth">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <div>
-                  <h2 className="text-base font-bold text-foreground">
-                    Machine Behavioural Anomaly &amp; Intent Drift (Key #3)
-                  </h2>
-                  <p className="text-xs text-muted-foreground">
-                    Detecting goal divergence, prompt injection, and smurfing structuring
-                  </p>
-                </div>
-                <span className="px-2.5 py-1 bg-amber-500/10 text-amber-500 text-xs font-semibold rounded border border-amber-500/20">
-                  Cosine &amp; Heuristic Guard
-                </span>
-              </div>
-
-              <div className="p-4 rounded-xl border border-border bg-secondary/20 space-y-3">
-                <div className="text-xs text-muted-foreground leading-relaxed">
-                  AgentShield continuously evaluates machine behaviour rather than human behaviour. If an agent states:{' '}
-                  <code className="bg-muted px-1.5 py-0.5 rounded text-foreground font-mono">
-                    &ldquo;Pay BESCOM electricity bill&rdquo;
-                  </code>{' '}
-                  but issues a debit to{' '}
-                  <code className="bg-muted px-1.5 py-0.5 rounded text-rose-500 font-mono">
-                    ATTACKER_OFFSHORE
-                  </code>
-                  , the Intent-Drift engine detects the divergence in <strong>0.8ms</strong> and halts execution.
-                </div>
-
-                <div className="p-3 bg-card border border-border rounded-lg text-xs space-y-2">
-                  <div className="font-bold text-foreground">Active Anomaly Protections:</div>
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
-                    <span>
-                      <strong>Smurfing / Structuring Detector:</strong> Flags 10 × ₹4,900 micro-transfers below ₹5,000 threshold.
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
-                    <span>
-                      <strong>Auto-Quarantine Circuit Breaker:</strong> Agent isolated automatically after 3 consecutive security violations.
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
-                    <span>
-                      <strong>Runaway Burst Limiter:</strong> Velocity caps prevent infinite-loop automated exploitation.
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <AnomalyDriftView
+              onValidated={() => setCompletedFeatures((prev) => ({ ...prev, anomaly: true }))}
+            />
           )}
 
           {/* FEATURE 06: HUMAN-IN-THE-LOOP STEP-UP */}
           {activeFeature === 'stepup' && (
-            <div className="rounded-xl border border-border bg-card p-6 shadow-sm space-y-4 card-depth">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <div>
-                  <h2 className="text-base font-bold text-foreground">
-                    Human-in-the-Loop Escalation (Key #4)
-                  </h2>
-                  <p className="text-xs text-muted-foreground">
-                    Pausing high-risk or ambiguous agent actions for biometric confirmation
-                  </p>
-                </div>
-                <span className="px-2.5 py-1 bg-indigo-500/10 text-indigo-500 text-xs font-semibold rounded border border-indigo-500/20">
-                  FIDO2 Level 2 Passkeys
-                </span>
-              </div>
-
-              <div className="p-5 rounded-xl border border-border bg-secondary/20 space-y-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-full bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-500">
-                    <Fingerprint className="h-6 w-6" strokeWidth={1.8} />
-                  </div>
-                  <div>
-                    <div className="text-sm font-bold text-foreground">
-                      Registered Passkey: Platform Biometric (Touch ID / Windows Hello)
-                    </div>
-                    <div className="text-xs text-muted-foreground font-mono">
-                      Credential ID: pk_cred_macbook_biometric_01 · User: CUST_101
-                    </div>
-                  </div>
-                </div>
-
-                <div className="p-3 bg-card border border-border rounded-lg text-xs text-muted-foreground">
-                  <strong>Dual-Control Escalation:</strong> When an agent initiates a transfer exceeding ₹2,000 or flags medium anomaly risk, the gateway issues an <code>ASK</code> decision. The call is suspended until the customer completes WebAuthn passkey verification.
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setPasskeyModalOpen(true)}
-                  className="px-4 py-2 bg-primary text-primary-foreground hover:opacity-90 rounded-lg text-xs font-bold flex items-center gap-2 transition active:scale-95"
-                >
-                  <Fingerprint className="h-4 w-4" />
-                  <span>Test Biometric Step-Up Verification</span>
-                </button>
-              </div>
-
-              {/* Passkey Step-Up Verification Modal */}
-              <PasskeyStepUpModal
-                isOpen={passkeyModalOpen}
-                onClose={() => setPasskeyModalOpen(false)}
-                agentName="AGENT_ELEC_01"
-                payee="National Grid Settlement Escrow"
-                amountPaise={485000}
-                thresholdPaise={200000}
-                reason="Electricity grid disbursement exceeds single-transaction policy threshold"
-                onApproved={() => {
-                  setCompletedFeatures((prev) => ({ ...prev, stepup: true }))
-                  toast.success('Signed WebAuthn Permit Issued', {
-                    description: 'Biometric passkey permit notarized and dispatched to Bank Gate (:4000).',
-                  })
-                }}
-              />
-            </div>
+            <StepupEscalationView
+              onValidated={() => setCompletedFeatures((prev) => ({ ...prev, stepup: true }))}
+            />
           )}
 
           {/* FEATURE 07: MERKLE AUDIT LEDGER */}
           {activeFeature === 'ledger' && (
-            <div className="rounded-xl border border-border bg-card p-6 shadow-sm space-y-4 card-depth">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <div>
-                  <h2 className="text-base font-bold text-foreground">
-                    Cryptographic Tamper-Evident Audit Ledger (Key #5)
-                  </h2>
-                  <p className="text-xs text-muted-foreground">
-                    RFC 6962 SHA-256 Merkle chain cosigned by independent Witness (:4002)
-                  </p>
-                </div>
-                <span className="text-xs font-mono text-cyan-600 dark:text-cyan-400 bg-cyan-500/10 px-2.5 py-1 rounded border border-cyan-500/20 font-bold">
-                  SHA-256 Merkle Chain
-                </span>
-              </div>
-
-              <div className="text-xs text-muted-foreground leading-relaxed">
-                Every debit transaction produces a cryptographic hash leaf linked to its predecessor. If an insider or root database operator modifies an amount from ₹1,000 to ₹1,00,000, the hash chain breaks immediately with an automated domino cascade.
-              </div>
-
-              {/* Interactive Merkle Chain Visualizer with SVG Hash Connectors & Tamper Cascade */}
-              <MerkleChainVisualizer
-                onTamperToggle={(tampered: boolean) => {
-                  setTamperSimulated(tampered)
-                  setCompletedFeatures((prev) => ({ ...prev, ledger: true }))
-                  setMetrics((prev) => ({
-                    ...prev,
-                    merkleBlocks: tampered ? '11/12 (TAMPER)' : '12/12 Valid',
-                  }))
-                }}
-              />
-            </div>
+            <MerkleLedgerView
+              onTamperToggle={(tampered: boolean) => {
+                setTamperSimulated(tampered)
+                setMetrics((prev) => ({
+                  ...prev,
+                  merkleBlocks: tampered ? '11/12 (TAMPER)' : '12/12 Valid',
+                }))
+              }}
+              onValidated={() => setCompletedFeatures((prev) => ({ ...prev, ledger: true }))}
+            />
           )}
 
           {/* FEATURE 08: MVP DEV & JUDGE TESTING GUIDE */}
           {activeFeature === 'mvp_guide' && (
-            <div className="rounded-xl border border-border bg-card p-6 shadow-sm space-y-6 card-depth">
-              <div className="border-b border-border pb-3">
-                <span className="px-2.5 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                  Hackathon Rubric Walkthrough
-                </span>
-                <h2 className="text-lg font-bold text-foreground mt-1">
-                  How to Demonstrate AgentShield in 3 Minutes
-                </h2>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Follow this concise sequence to prove all 5 core problem statements to hackathon judges.
-                </p>
-              </div>
-
-              <div className="space-y-4">
-                <div className="p-4 rounded-xl border border-border bg-secondary/20 space-y-1.5">
-                  <div className="text-xs font-bold text-indigo-500 uppercase tracking-wider">
-                    Step 1 · Show Unprotected Failure (Protection OFF)
-                  </div>
-                  <div className="text-sm font-semibold text-foreground">
-                    Turn Protection OFF &amp; Run Prompt Injection
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Flip the master switch at the top right to <strong>PROTECTION OFF</strong>. Run Scenario 1 in the Attack Lab. The prompt injection in the invoice PDF bypasses controls and drains ₹4,900.
-                  </p>
-                </div>
-
-                <div className="p-4 rounded-xl border border-border bg-secondary/20 space-y-1.5">
-                  <div className="text-xs font-bold text-indigo-500 uppercase tracking-wider">
-                    Step 2 · Show Protected Defense (Protection ON)
-                  </div>
-                  <div className="text-sm font-semibold text-foreground">
-                    Turn Protection ON &amp; Intercept Rogue Agent
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Flip the master switch back to <strong>PROTECTION ON</strong>. Re-run Scenario 1. AgentShield&apos;s Intent-Drift engine catches the payee divergence in <strong>4ms</strong>. The transaction is blocked, saving ₹4,900.
-                  </p>
-                </div>
-
-                <div className="p-4 rounded-xl border border-border bg-secondary/20 space-y-1.5">
-                  <div className="text-xs font-bold text-indigo-500 uppercase tracking-wider">
-                    Step 3 · Run Automated Test Suites Live
-                  </div>
-                  <div className="text-sm font-semibold text-foreground">
-                    100% Test Coverage Across Banking Infrastructure
-                  </div>
-                  <div className="p-3 rounded bg-muted/80 font-mono text-xs text-foreground border border-border space-y-1 mt-2">
-                    <div className="text-muted-foreground"># 1. 5 Core Hackathon Requirements (13 / 13 passed):</div>
-                    <div className="text-emerald-600 dark:text-emerald-400 font-bold">npm run test:hackathon</div>
-                    <div className="text-muted-foreground mt-2"># 2. 7 Attack Lab Scenarios (17 / 17 passed):</div>
-                    <div className="text-emerald-600 dark:text-emerald-400 font-bold">
-                      npm --workspace @agentguard/gateway-mcp test src/__tests__/attack-lab-scenarios.test.ts
-                    </div>
-                    <div className="text-muted-foreground mt-2"># 3. Core Banking Ledger &amp; Witness (101 / 101 passed):</div>
-                    <div className="text-emerald-600 dark:text-emerald-400 font-bold">npm run test:banking</div>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <JudgeWalkthroughView
+              protectionEnabled={protectionEnabled}
+              onToggleProtection={(val) => setProtectionEnabled(val)}
+              onNavigateToModule={(mod) => setActiveFeature(mod as BankingModuleId)}
+              onValidated={() => setCompletedFeatures((prev) => ({ ...prev, mvp_guide: true }))}
+            />
           )}
 
           {/* ── STEP NAVIGATION FOOTER (PREVIOUS / NEXT WORKFLOW) ────────────────────── */}
