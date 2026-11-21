@@ -12,7 +12,7 @@
 // on a console that was not connected to anything. The cloud preview
 // sets the flag explicitly (vercel.json); everything else shows the
 // gateway or an honest empty state.
-export const USE_MOCK = process.env['NEXT_PUBLIC_USE_MOCK_TRACES'] !== 'false'
+export const USE_MOCK = process.env['NEXT_PUBLIC_USE_MOCK_TRACES'] === 'true'
 
 /** 24 hourly buckets with a believable business-hours shape. The
  *  newest bucket is index 23 (= now). Returns absolute counts so the

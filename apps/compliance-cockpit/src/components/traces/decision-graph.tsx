@@ -46,9 +46,12 @@ interface DecisionGraphProps {
 }
 
 export function DecisionGraph({ agentId, traces }: DecisionGraphProps) {
-  const sorted = [...traces].sort(
-    (a, b) => a.sequence_number - b.sequence_number
-  )
+  const sorted = [...traces].sort((a, b) => {
+    const seqA = a.sequence_number ?? 0
+    const seqB = b.sequence_number ?? 0
+    if (seqA !== seqB) return seqA - seqB
+    return String(a.timestamp || '').localeCompare(String(b.timestamp || ''))
+  })
 
   if (sorted.length === 0) {
     return (

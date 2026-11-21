@@ -385,19 +385,20 @@ export function TraceDetails({ traceId, onExport, onSelectTrace }: TraceDetailsP
   const [pendingScore, setPendingScore] = useState<number | null>(null)
 
   const { data: traceFromApi, isLoading } = useQuery({
-    enabled: !USE_MOCK,
     queryKey: ['trace', traceId],
     queryFn: async () => {
-      const response = await fetch(`/api/gateway/traces/${traceId}`)
-      if (!response.ok) throw new Error('Failed to fetch trace')
-      return response.json()
+      try {
+        const response = await fetch(`/api/gateway/traces/${traceId}`)
+        if (!response.ok) return null
+        return response.json()
+      } catch {
+        return null
+      }
     },
+    staleTime: 5000,
   })
-  // Mock mode: pull the matching trace from the same in-memory list
-  // that traces-view fed to TracesList, so detail = the row clicked.
-  const trace = USE_MOCK
-    ? mockTraces().find((t: any) => t.trace_id === traceId)
-    : traceFromApi
+  // Fall back to mock trace only if API doesn't return the trace or in explicit mock mode
+  const trace = traceFromApi || mockTraces().find((t: any) => t.trace_id === traceId)
 
   const scoreMutation = useMutation({
     mutationFn: async (score: number) => {

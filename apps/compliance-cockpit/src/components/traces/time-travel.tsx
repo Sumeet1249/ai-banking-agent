@@ -25,7 +25,12 @@ export function TimeTravel({ traces, selectedAgent }: TimeTravelProps) {
   const filtered = [...(selectedAgent
     ? traces.filter(t => t.agent_id === selectedAgent)
     : traces
-  )].sort((a, b) => a.sequence_number - b.sequence_number)
+  )].sort((a, b) => {
+    const seqA = a.sequence_number ?? 0
+    const seqB = b.sequence_number ?? 0
+    if (seqA !== seqB) return seqA - seqB
+    return String(a.timestamp || '').localeCompare(String(b.timestamp || ''))
+  })
 
   const [idx, setIdx]           = useState(0)
   const [playing, setPlaying]   = useState(false)
