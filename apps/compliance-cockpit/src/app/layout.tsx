@@ -8,8 +8,8 @@ import { FirstLaunchGate } from '@/components/first-launch-gate'
 // One UI face (Geist) for everything but code; the serif display face
 // and the wordmark font are gone — identity comes from spacing and weight.
 export const metadata: Metadata = {
-  title: 'AgentShield — AI Agent Intelligence & Security',
-  description: 'Real-time monitoring and auditing for AI agents',
+  title: 'AgentGuard AI — Autonomous Agent Trust & Security Engine',
+  description: 'Deterministic security, cryptographic mandates, and real-time behavioral runtime governance for AI agents',
   icons: { icon: '/aegis-logo.png', apple: '/aegis-logo.png' },
 }
 

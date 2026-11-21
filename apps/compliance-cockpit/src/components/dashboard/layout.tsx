@@ -92,7 +92,7 @@ function AegisLogo({ collapsed = false }: { collapsed?: boolean }) {
         <Shield className="h-4 w-4" strokeWidth={2} />
       </div>
       <span
-        aria-label="AgentShield"
+        aria-label="AgentGuard AI"
         style={{
           fontFamily: 'var(--font-geist-sans), system-ui, sans-serif',
           fontWeight: 700,
@@ -105,7 +105,7 @@ function AegisLogo({ collapsed = false }: { collapsed?: boolean }) {
         }}
         className="whitespace-nowrap"
       >
-        AgentShield
+        AgentGuard AI
       </span>
     </div>
   )

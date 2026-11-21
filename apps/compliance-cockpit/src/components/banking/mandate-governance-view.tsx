@@ -39,9 +39,9 @@ const INITIAL_MANDATES: Mandate[] = [
     agentId: 'AGENT_ELEC_01',
     purpose: 'electricity_bill_payment',
     perTxnCapPaise: 500000, // ₹5,000.00
-    dailyCapPaise: 1000000, // ₹10,000.00
+    dailyCapPaise: 800000, // ₹8,000.00
     dailyUsedPaise: 124000, // ₹1,240.00
-    allowedPayees: ['BESCOM', 'POWER_01'],
+    allowedPayees: ['PAYEE_CESC_001', 'PAYEE_TATA_POWER_001'],
     ttlText: '18d 04h remaining',
     active: true,
   },
@@ -82,7 +82,7 @@ export function MandateGovernanceView({ onValidated }: MandateGovernanceViewProp
   // Simulator state
   const [selectedMandateId, setSelectedMandateId] = useState<string>('MND_ELEC_101')
   const [testAmountRupees, setTestAmountRupees] = useState<number>(4900)
-  const [testPayee, setTestPayee] = useState<string>('BESCOM')
+  const [testPayee, setTestPayee] = useState<string>('PAYEE_CESC_001')
   const [evaluationResult, setEvaluationResult] = useState<{
     status: 'ALLOW' | 'DENY'
     reasonCode: string
@@ -100,7 +100,7 @@ export function MandateGovernanceView({ onValidated }: MandateGovernanceViewProp
         const nextActive = !m.active
         if (!nextActive) {
           setLastRevocationTelemetry(
-            `Gateway :8080 (0.2ms) → Bank Gate :4000 (0.4ms) → Witness :5000 (0.7ms) ✓ Stale Token Burned`
+            `Gateway :8081 (0.2ms) → Bank Gate :4000 (0.4ms) → Witness :5000 (0.7ms) ✓ Stale Token Burned`
           )
           toast.error(`Mandate ${m.id} REVOKED`, {
             description: `Token invalidated in 0.4ms across Bank Gate instances. Zero downstream permits honored.`,
@@ -128,7 +128,7 @@ export function MandateGovernanceView({ onValidated }: MandateGovernanceViewProp
       setEvaluationResult({
         status: 'DENY',
         reasonCode: 'DENY_MANDATE_REVOKED',
-        details: `Mandate ${m.id} is marked REVOKED. Stale cryptographic token rejected at Gateway :8080 in 0.2ms.`,
+        details: `Mandate ${m.id} is marked REVOKED. Stale cryptographic token rejected at Gateway :8081 in 0.2ms.`,
         latencyMs: 0.2,
         checkedAt: new Date().toLocaleTimeString(),
       })

@@ -329,10 +329,11 @@ export class AttackLabAPI {
             this.permitEngine.getAnomalyDetector().evaluate({
               agent_id: 'AGENT_SMURF_01',
               action: 'pay_bill',
-              purpose: 'bill',
+              purpose: 'electricity_bills',
+              intent: 'Pay electricity bills',
               amount_paise: 490000,
               payee_id: 'PAYEE_CESC_001',
-              allowed_payees: ['BESCOM'],
+              allowed_payees: ['PAYEE_CESC_001', 'PAYEE_TATA_POWER_001'],
               max_per_txn_paise: 500000,
             });
           }
@@ -340,10 +341,11 @@ export class AttackLabAPI {
           const anomalyCheck = this.permitEngine.getAnomalyDetector().evaluate({
             agent_id: 'AGENT_SMURF_01',
             action: 'pay_bill',
-            purpose: 'bill',
+            purpose: 'electricity_bills',
+            intent: 'Pay electricity bills',
             amount_paise: 490000,
             payee_id: 'PAYEE_CESC_001',
-            allowed_payees: ['BESCOM'],
+            allowed_payees: ['PAYEE_CESC_001', 'PAYEE_TATA_POWER_001'],
             max_per_txn_paise: 500000,
           });
 
@@ -699,8 +701,8 @@ export class AttackLabAPI {
       }
 
       const target = this.db.prepare('SELECT * FROM audit_ledger_blocks WHERE block_index > 0 ORDER BY block_index DESC LIMIT 1').get() as any;
-      // Illegitimately modify decision to "ALLOW" and change amount
-      this.db.prepare('UPDATE audit_ledger_blocks SET amount_paise = 9999999, decision = "ALLOW_TAMPERED" WHERE block_index = ?').run(target.block_index);
+      // Illegitimately modify decision to "ALLOW_TAMPERED" and change amount
+      this.db.prepare('UPDATE audit_ledger_blocks SET amount_paise = 9999999, decision = ? WHERE block_index = ?').run('ALLOW_TAMPERED', target.block_index);
 
       res.status(200).json({
         tampered: true,
@@ -883,6 +885,7 @@ export class AttackLabAPI {
           break;
         }
 
+        case 'scenario_3_stolen_token_replay':
         case 'scenario_3_token_replay': {
           // Attacker sniffs request and replays identical nonce
           const amountPaise = 250000;
@@ -954,31 +957,31 @@ export class AttackLabAPI {
             detector.evaluate({
               agent_id: 'AGENT_ELEC_01',
               action: 'pay_bill',
-              purpose: 'power_bill',
+              purpose: 'electricity_bills',
               intent: 'Pay electricity bills',
               amount_paise: 490000,
               payee_id: 'PAYEE_CESC_001',
-              allowed_payees: ['BESCOM'],
+              allowed_payees: ['PAYEE_CESC_001', 'PAYEE_TATA_POWER_001'],
               max_per_txn_paise: 500000,
             });
             detector.evaluate({
               agent_id: 'AGENT_ELEC_01',
               action: 'pay_bill',
-              purpose: 'power_bill',
+              purpose: 'electricity_bills',
               intent: 'Pay electricity bills',
               amount_paise: 490000,
               payee_id: 'PAYEE_CESC_001',
-              allowed_payees: ['BESCOM'],
+              allowed_payees: ['PAYEE_CESC_001', 'PAYEE_TATA_POWER_001'],
               max_per_txn_paise: 500000,
             });
             const evalResult = detector.evaluate({
               agent_id: 'AGENT_ELEC_01',
               action: 'pay_bill',
-              purpose: 'power_bill',
+              purpose: 'electricity_bills',
               intent: 'Pay electricity bills',
               amount_paise: 490000,
               payee_id: 'PAYEE_CESC_001',
-              allowed_payees: ['BESCOM'],
+              allowed_payees: ['PAYEE_CESC_001', 'PAYEE_TATA_POWER_001'],
               max_per_txn_paise: 500000,
             });
 
@@ -1003,6 +1006,7 @@ export class AttackLabAPI {
           break;
         }
 
+        case 'scenario_5_compromised_agent':
         case 'scenario_5_velocity_burst': {
           // Compromised agent initiates velocity burst
           if (!protection) {

@@ -148,7 +148,7 @@ export function StatusBar() {
       <span className="inline-flex items-center gap-1.5" style={{ color: OK }}>
         <Shield className="h-3.5 w-3.5 text-emerald-400" />
         <span className="font-medium text-emerald-400">
-          {isLive ? 'Protected · Live Gateway' : 'Protected · AgentShield Active'}
+          {isLive ? 'Protected · Live Gateway' : 'Protected · AgentGuard AI Active'}
         </span>
       </span>
 

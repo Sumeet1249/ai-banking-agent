@@ -154,8 +154,8 @@ async function checkGatewayAlive(): Promise<boolean> {
   }
   _lastGatewayCheck = now
   try {
-    const res = await fetch(`http://127.0.0.1:8080/health`, {
-      signal: AbortSignal.timeout(150),
+    const res = await fetch(`${BASE}/health`, {
+      signal: AbortSignal.timeout(1000),
       cache: 'no-store',
     })
     _isGatewayAlive = res.ok
