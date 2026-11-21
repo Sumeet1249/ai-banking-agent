@@ -316,26 +316,27 @@ function DesktopSidebarContent({
                       type="button"
                       onClick={() => setDepthEnabled((v) => !v)}
                       title="Toggle 3D Spatial Depth"
-                            ? 'border-[hsl(var(--brand)/0.4)] bg-[hsl(var(--brand)/0.12)] text-foreground'
-                            : 'border-border bg-secondary/50 text-muted-foreground hover:text-foreground'
-                          }`}
-              >
-                <Layers className="h-3.5 w-3.5" strokeWidth={1.6} />
-                <span>3D</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsometricMode((v) => !v)}
-                title="Toggle Isometric Stage Perspective"
-                      className = {`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors whitespace-nowrap ${isometricMode
-                          ? 'border-[hsl(var(--brand)/0.4)] bg-[hsl(var(--brand)/0.12)] text-foreground'
-                          : 'border-border bg-secondary/50 text-muted-foreground hover:text-foreground'
-                        }`}
-              >
-                    <Box className="h-3.5 w-3.5" strokeWidth={1.6} />
-                    <span>Iso</span>
-                  </button>
-                </div>
+                      className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors whitespace-nowrap ${depthEnabled
+                        ? 'border-[hsl(var(--brand)/0.4)] bg-[hsl(var(--brand)/0.12)] text-foreground'
+                        : 'border-border bg-secondary/50 text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      <Layers className="h-3.5 w-3.5" strokeWidth={1.6} />
+                      <span>3D</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsometricMode((v) => !v)}
+                      title="Toggle Isometric Stage Perspective"
+                      className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors whitespace-nowrap ${isometricMode
+                        ? 'border-[hsl(var(--brand)/0.4)] bg-[hsl(var(--brand)/0.12)] text-foreground'
+                        : 'border-border bg-secondary/50 text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      <Box className="h-3.5 w-3.5" strokeWidth={1.6} />
+                      <span>Iso</span>
+                    </button>
+                  </div>
               <AccountWidget />
               <p className="text-[10px] text-muted-foreground/80 whitespace-nowrap">v{process.env.APP_VERSION || '1.0.0'}</p>
             </>

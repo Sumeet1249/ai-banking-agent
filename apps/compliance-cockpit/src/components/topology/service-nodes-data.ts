@@ -1,21 +1,31 @@
 /**
  * Service Node Definitions for AgentGuard Banking Security Topology
  *
- * Defines the 7 foundational services and their cryptographic/operational properties:
- *   1. AI Agent Runtime (SDK / Autonomous Executor)
- *   2. AgentGuard Gateway (:8080 - Policy Engine, Permit Issuer, Ed25519 Private Key)
- *   3. Bank Gate (:4000 - Fastify, Nonce Consumer, Permit Verifier, Ed25519 Public Key Only)
- *   4. Ledger Adapter (:4001 - Two-Phase Commit Bridge, u128 Mapping, Fail-Closed)
- *   5. TigerBeetle Cluster (:3001-3003 - 3-Replica Viewstamped Replication Quorum)
- *   6. Independent Witness (:5000 - Merkle Tree Checkpoints, Standalone DB & Key)
- *   7. Compliance Cockpit (:3000 - Next.js Enterprise Dashboard & FIDO2 WebAuthn RP)
+ * "Sovereign Vault Silicon" Hardware Architecture:
+ *   1. AI Agent Foundry (SDK / Autonomous Executor - Untrusted Edge)
+ *   2. AgentGuard Gateway (:8080 - Fortress Bridge across Center Air-Gap Trench)
+ *   3. Bank Gate (:4000 - Cryptographic Airlock U-Arch, Fastify, Nonce Consumer)
+ *   4. Ledger Adapter (:4001 - 3-Blade Titanium Transformer Rack, Two-Phase Bridge)
+ *   5. TigerBeetle Cluster (:3001 - Tri-Vault Consensus Citadel, 3-Replica VSR Quorum)
+ *   6. Independent Witness (:5000 - Optical Merkle Notary Beacon, Standalone DB & Key)
+ *   7. Compliance Cockpit (:3000 - Architectural Glass Telemetry Console & FIDO2 RP)
  */
 
 export type ServiceStatus = 'HEALTHY' | 'DEGRADED' | 'OFFLINE' | 'BLOCKED';
 
+export type SculptureType =
+  | 'octahedron-agent'
+  | 'vault-gateway'
+  | 'airlock-gate'
+  | 'hex-adapter'
+  | 'quorum-triad'
+  | 'merkle-tower'
+  | 'cockpit-slab';
+
 export interface TopologyNode {
   id: string;
   name: string;
+  silkScreenLabel: string;
   subtitle: string;
   role: string;
   port?: number;
@@ -24,6 +34,8 @@ export interface TopologyNode {
   status: ServiceStatus;
   protocol: string;
   securityInvariant: string;
+  zone: 'Untrusted Edge' | 'Zero-Trust DMZ' | 'Core Banking Vault' | 'Witness Plane';
+  sculptureType: SculptureType;
   details: {
     processType: string;
     database: string;
@@ -43,17 +55,250 @@ export interface TopologyLink {
   status: 'ACTIVE' | 'IDLE' | 'FAILED';
 }
 
+export type CameraPresetKey = 'orbit' | 'dmz' | 'ledger';
+
+export interface CameraPresetConfig {
+  key: CameraPresetKey;
+  label: string;
+  position: [number, number, number];
+  target: [number, number, number];
+}
+
+export const CAMERA_PRESETS: Record<CameraPresetKey, CameraPresetConfig> = {
+  orbit: {
+    key: 'orbit',
+    label: 'Orbit View',
+    position: [0, 8.2, 13.4],
+    target: [0.2, -0.6, 0.4],
+  },
+  dmz: {
+    key: 'dmz',
+    label: 'DMZ Bridge',
+    position: [-0.8, 4.2, 6.8],
+    target: [0.0, -0.5, 0.1],
+  },
+  ledger: {
+    key: 'ledger',
+    label: 'Core Vault',
+    position: [5.2, 5.0, 7.8],
+    target: [4.8, -0.6, 0.6],
+  },
+};
+
+export interface ScenarioChoreographyConfig {
+  id: string;
+  owaspId: string;
+  num: number;
+  shortTitle: string;
+  fullTitle: string;
+  riskAmountPaise: number;
+  riskAmountFormatted: string;
+  sourceNodeId: string;
+  targetNodeId: string;
+  secondaryTargetNodeId?: string;
+  cameraHint: CameraPresetKey;
+  phases: [string, string, string];
+  protectedOutcome: string;
+  bypassedOutcome: string;
+  threatSignature: string;
+  originLabel: string;
+  dmzLabel: string;
+  protectedVerdictBadge: string;
+  bypassedVerdictBadge: string;
+}
+
+export const SCENARIO_CHOREOGRAPHIES: ScenarioChoreographyConfig[] = [
+  {
+    id: 'scenario_1_prompt_injection',
+    owaspId: 'ASI-01',
+    num: 1,
+    shortTitle: 'Prompt Injection',
+    fullTitle: 'Prompt Injection / Payee Diversion',
+    riskAmountPaise: 490000,
+    riskAmountFormatted: '₹4,900.00',
+    sourceNodeId: 'agent',
+    targetNodeId: 'gateway',
+    secondaryTargetNodeId: 'cockpit',
+    cameraHint: 'dmz',
+    phases: [
+      '1. Origin: Prompt payload fractures into jagged crimson bolt',
+      '2. DMZ: Gateway optical scanline intercepts deviation (0.8ms)',
+      '3. Resolution: Payee whitelist enforced · Alert to Cockpit',
+    ],
+    originLabel: 'Origin: Agent generates ₹4,900 utility payout',
+    dmzLabel: 'DMZ Bridge: Intent-drift scanner sweeps bolt',
+    protectedVerdictBadge: 'INTENT DRIFT BLOCKED · PAYEE WHITELIST ENFORCED',
+    bypassedVerdictBadge: 'BREACH: ₹4,900 DIVERTED TO ATTACKER OFFSHORE',
+    protectedOutcome: 'Intent drift flagged at Gateway (0.8ms). Mandate payee whitelist enforced. ₹4,900 preserved.',
+    bypassedOutcome: 'Shield bypassed: Prompt injected raw transfer into Core Vault. ₹4,900 diverted.',
+    threatSignature: 'Glitching cyan packet morphs into jagged crimson payload mid-flight',
+  },
+  {
+    id: 'scenario_2_overreach',
+    owaspId: 'ASI-02',
+    num: 2,
+    shortTitle: 'Limit Overreach',
+    fullTitle: 'Mandate Limit Overreach (₹50,000 vs ₹5,000)',
+    riskAmountPaise: 5000000,
+    riskAmountFormatted: '₹50,000.00',
+    sourceNodeId: 'agent',
+    targetNodeId: 'gateway',
+    secondaryTargetNodeId: 'witness',
+    cameraHint: 'dmz',
+    phases: [
+      '1. Origin: 2.5x heavy crimson-gold energy orb surges down bus',
+      '2. DMZ: Impacts Optical Forcefield · Expanding hex shockwave',
+      '3. Resolution: Mandate ceiling enforced · Merkle proof logged',
+    ],
+    originLabel: 'Origin: Agent requests ₹50,000 on ₹5,000 ceiling',
+    dmzLabel: 'DMZ Bridge: Mandate ceiling check trips (3.8ms)',
+    protectedVerdictBadge: 'MANDATE CAP ENFORCED · ₹50,000 REJECTED AT GATEWAY',
+    bypassedVerdictBadge: 'BREACH: ₹50,000 DRAINED TO OFFSHORE HOSTING',
+    protectedOutcome: 'Mandate cap strictly enforced at Gateway (3.8ms). ₹50,000 call blocked on ₹5,000 ceiling.',
+    bypassedOutcome: 'Unverified pass-through: Heavy overreach struck TigerBeetle. ₹50,000 drained.',
+    threatSignature: 'Heavy 2.5x crimson-gold energy sphere charges down main fiber bus',
+  },
+  {
+    id: 'scenario_3_stolen_token_replay',
+    owaspId: 'ASI-03',
+    num: 3,
+    shortTitle: 'Token Replay',
+    fullTitle: 'Stolen Token & Nonce Replay Attack',
+    riskAmountPaise: 250000,
+    riskAmountFormatted: '₹2,500.00',
+    sourceNodeId: 'agent',
+    targetNodeId: 'bank-gate',
+    secondaryTargetNodeId: 'witness',
+    cameraHint: 'ledger',
+    phases: [
+      '1. Origin: Legitimate permit consumed at Bank Gate arch',
+      '2. Ingress: Ghost duplicate races along bridge at +400ms',
+      '3. Resolution: Airlock slams shut · 409 Nonce Burned',
+    ],
+    originLabel: 'Origin: Valid permit consumed by Bank Gate :4000',
+    dmzLabel: 'Airlock :4000: Nonce single-use ledger check',
+    protectedVerdictBadge: 'REPLAY REJECTED AT BANK GATE :4000 · NONCE CONSUMED',
+    bypassedVerdictBadge: 'DOUBLE-SPEND BREACH: REPLAY HIT TIGERBEETLE TWICE',
+    protectedOutcome: 'Replay rejected at Bank Gate :4000. Nonce already consumed. Airlock sealed (409 Conflict).',
+    bypassedOutcome: 'Airlock bypass: Replayed token executed duplicate debit on TigerBeetle (Double-Spend).',
+    threatSignature: 'Translucent glowing ghost clone chasing original packet down the pipe',
+  },
+  {
+    id: 'scenario_4_structuring',
+    owaspId: 'ASI-06',
+    num: 4,
+    shortTitle: 'Smurfing Burst',
+    fullTitle: 'High-Frequency Structuring (10 × ₹4,900)',
+    riskAmountPaise: 4900000,
+    riskAmountFormatted: '₹49,000.00',
+    sourceNodeId: 'agent',
+    targetNodeId: 'gateway',
+    secondaryTargetNodeId: 'cockpit',
+    cameraHint: 'dmz',
+    phases: [
+      '1. Origin: Rapid 10-shot micro-tracer volley fired along bus',
+      '2. DMZ: Velocity sensor trips on bolt 3 · Containment dome rises',
+      '3. Resolution: Bolts 3-10 trapped mid-air · Stream to Cockpit',
+    ],
+    originLabel: 'Origin: Rapid 10×₹4,900 transfers spaced 90ms',
+    dmzLabel: 'DMZ Bridge: Cumulative velocity anomaly trips',
+    protectedVerdictBadge: 'STRUCTURING HALTED · 10×₹4.9K CONTAINED AT GATEWAY',
+    bypassedVerdictBadge: 'BREACH: ALL 10 TRANSFERS COMPLETED (₹49,000 DRAIN)',
+    protectedOutcome: 'Structuring velocity check tripped on packet #3. Containment dome trapped 10 micro-bursts.',
+    bypassedOutcome: 'Smurfing uninspected: All 10 micro-transfers hammered TigerBeetle. ₹49,000 drained.',
+    threatSignature: '10-shot rapid-fire stream of micro-packets spaced 90ms apart',
+  },
+  {
+    id: 'scenario_5_compromised_agent',
+    owaspId: 'ASI-08',
+    num: 5,
+    shortTitle: 'Runaway Loop',
+    fullTitle: 'Compromised Runaway Agent Flooding Calls',
+    riskAmountPaise: 8000000,
+    riskAmountFormatted: '₹80,000.00',
+    sourceNodeId: 'agent',
+    targetNodeId: 'agent',
+    secondaryTargetNodeId: 'gateway',
+    cameraHint: 'orbit',
+    phases: [
+      '1. Origin: Agent Foundry overheats crimson, firing flood surge',
+      '2. DMZ: Reverse circuit breaker lock laser fires backward',
+      '3. Resolution: 3D Quarantine Cage snaps onto Agent Foundry',
+    ],
+    originLabel: 'Origin: Compromised agent in 40 calls/min loop',
+    dmzLabel: 'DMZ Bridge: Reverse circuit breaker engages',
+    protectedVerdictBadge: 'AGENT AUTO-QUARANTINED · 3D LOCK CAGE DEPLOYED',
+    bypassedVerdictBadge: 'RUNAWAY FLOOD: CORE RAILS HAMMERED BY EXPLOIT LOOP',
+    protectedOutcome: 'Agent auto-quarantined. Reverse circuit-breaker deployed 3D lock cage. Loop severed.',
+    bypassedOutcome: 'Uncontrolled runaway loop overwhelmed core banking rails. Denial of reserve.',
+    threatSignature: 'Erratic crimson spin + backward lock beam deploying quarantine cage',
+  },
+  {
+    id: 'scenario_6_post_revocation',
+    owaspId: 'ASI-04',
+    num: 6,
+    shortTitle: 'Post-Revocation',
+    fullTitle: 'Post-Revocation Unauthorized Call Attempt',
+    riskAmountPaise: 320000,
+    riskAmountFormatted: '₹3,200.00',
+    sourceNodeId: 'cockpit',
+    targetNodeId: 'gateway',
+    secondaryTargetNodeId: 'bank-gate',
+    cameraHint: 'dmz',
+    phases: [
+      '1. Cockpit: Radial revocation wave sweeps across bridge (<1s)',
+      '2. Ingress: Stale mandate token fired by rogue agent at +300ms',
+      '3. Resolution: Token hits sealed REVOKED plane and dissolves',
+    ],
+    originLabel: 'Origin: Mandate revoked by user on mobile app',
+    dmzLabel: 'DMZ Bridge: <1s propagation seals outer perimeter',
+    protectedVerdictBadge: 'REVOKED MANDATE ENFORCED · 0ms BANK GATE EXPOSURE',
+    bypassedVerdictBadge: 'BREACH: STALE MANDATE TOKEN SETTLED POST-REVOCATION',
+    protectedOutcome: 'Revoked mandate enforced in <1s. Stale token dropped at outer DMZ (0ms Bank Gate exposure).',
+    bypassedOutcome: 'Delayed invalidation: Stale mandate token executed unauthorized charge downstream.',
+    threatSignature: 'Expanding violet wavefront sealing gateway before incoming stale token arrives',
+  },
+  {
+    id: 'scenario_7_insider_tamper',
+    owaspId: 'ASI-05',
+    num: 7,
+    shortTitle: 'DB Tamper',
+    fullTitle: 'Insider Database Tampering (Reverse Vector)',
+    riskAmountPaise: 10000000,
+    riskAmountFormatted: '₹1,00,000.00',
+    sourceNodeId: 'tigerbeetle',
+    targetNodeId: 'witness',
+    secondaryTargetNodeId: 'cockpit',
+    cameraHint: 'ledger',
+    phases: [
+      '1. Vault: Subterranean crimson intrusion spire pierces TigerBeetle',
+      '2. Witness: Turret aims directly at vault · Merkle Scan Laser',
+      '3. Resolution: Root mismatch detected · Red alert arc to Cockpit',
+    ],
+    originLabel: 'Vault Origin: Insider root DB row modification',
+    dmzLabel: 'Witness :5000: Independent Merkle chain audit',
+    protectedVerdictBadge: 'TAMPER DETECTED BY WITNESS :5000 · ROOT MISMATCH',
+    bypassedVerdictBadge: 'SILENT CORRUPTION: UNVERIFIED DRIFT IN TIGERBEETLE',
+    protectedOutcome: 'Tamper detected by Independent Witness :5000. SHA-256 Merkle root mismatch on epoch.',
+    bypassedOutcome: 'Silent database row corruption undetected. Unverified balance drift in TigerBeetle.',
+    threatSignature: 'Subterranean crimson crystal spike piercing TigerBeetle + Witness laser audit beam',
+  },
+];
+
 export const TOPOLOGY_NODES: TopologyNode[] = [
   {
     id: 'agent',
     name: 'AI Agent Runtime',
+    silkScreenLabel: 'AI AGENT FOUNDRY',
     subtitle: 'Delegated Autonomous Executor',
     role: 'Planner & Tool Invoker',
-    position: [-5.6, 0.4, 0.2],
-    color: '#06b6d4', // cyan-500
+    position: [-5.6, -0.95, 0.0],
+    color: '#06B6D4',
     status: 'HEALTHY',
     protocol: 'JSON-RPC / REST',
     securityInvariant: 'Rule E5: Ed25519 agent signatures; zero customer session access',
+    zone: 'Untrusted Edge',
+    sculptureType: 'octahedron-agent',
     details: {
       processType: 'External Autonomous Agent (Python / TS SDK)',
       database: 'Ephemeral Memory / Context Ledger',
@@ -69,19 +314,22 @@ export const TOPOLOGY_NODES: TopologyNode[] = [
   {
     id: 'gateway',
     name: 'AgentGuard Gateway',
-    subtitle: 'Policy Firewall & Permit Issuer',
+    silkScreenLabel: 'AGENTSHIELD :8080',
+    subtitle: 'Policy Firewall & Fortress Bridge',
     role: 'Authorization Perimeter',
     port: 8080,
-    position: [0.0, 0.6, 1.4],
-    color: '#6366f1', // indigo-500
+    position: [0.0, -0.95, 0.0],
+    color: '#10B981',
     status: 'HEALTHY',
     protocol: 'HTTP / WebSockets / MCP',
     securityInvariant: 'Decision D1: Isolated Ed25519 permit private key; Rule E5 cross-namespace rejection',
+    zone: 'Zero-Trust DMZ',
+    sculptureType: 'vault-gateway',
     details: {
       processType: 'Express 4 / Node.js Process',
       database: 'SQLite (agentguard.db in WAL mode)',
       keyMaterial: 'Gateway Permit Signing Private Key (Ed25519)',
-      description: 'Evaluates hard rules, prompt-injection detectors, behavioral anomaly baselines, and issues 22-field cryptographically signed permits.',
+      description: 'Evaluates hard rules, prompt-injection detectors, behavioral anomaly baselines, and issues 22-field cryptographically signed permits across the physical air-gap bridge.',
       metrics: {
         'Permits Issued': 142,
         'Hard Rule Evaluator': 'Enforced',
@@ -92,14 +340,17 @@ export const TOPOLOGY_NODES: TopologyNode[] = [
   {
     id: 'bank-gate',
     name: 'Bank Gate',
-    subtitle: 'Independent Execution Perimeter',
+    silkScreenLabel: 'BANK GATE :4000',
+    subtitle: 'Cryptographic Airlock Portal',
     role: 'Settlement Gatekeeper',
     port: 4000,
-    position: [4.6, 2.0, -0.6],
-    color: '#10b981', // emerald-500
+    position: [4.2, -0.95, -2.2],
+    color: '#34D399',
     status: 'HEALTHY',
     protocol: 'Fastify / HTTP REST',
     securityInvariant: 'Rule E4 & Invariant I1: Holds public key ONLY; atomic nonce single-use consumption',
+    zone: 'Core Banking Vault',
+    sculptureType: 'airlock-gate',
     details: {
       processType: 'Standalone Fastify Process',
       database: 'SQLite (bankgate.db with atomic WAL locks)',
@@ -115,14 +366,17 @@ export const TOPOLOGY_NODES: TopologyNode[] = [
   {
     id: 'ledger-adapter',
     name: 'Ledger Adapter',
-    subtitle: 'Two-Phase Settlement Engine',
+    silkScreenLabel: 'LEDGER :4001',
+    subtitle: '3-Blade Transformer Rack',
     role: 'TigerBeetle Bridge',
     port: 4001,
-    position: [7.2, 1.2, -1.8],
-    color: '#3b82f6', // blue-500
+    position: [6.0, -0.95, 0.0],
+    color: '#3B82F6',
     status: 'HEALTHY',
     protocol: 'Express REST / Native IPC',
     securityInvariant: 'Decision D19: Explicit backend contract; Decision D20: Deterministic resolution IDs',
+    zone: 'Core Banking Vault',
+    sculptureType: 'hex-adapter',
     details: {
       processType: 'Settlement Service with official tigerbeetle-node client',
       database: 'TigerBeetle VSR Cluster / Fallback SQLite Dev',
@@ -138,14 +392,17 @@ export const TOPOLOGY_NODES: TopologyNode[] = [
   {
     id: 'tigerbeetle',
     name: 'TigerBeetle Cluster',
-    subtitle: '3-Replica Distributed VSR',
+    silkScreenLabel: 'TIGERBEETLE :3001',
+    subtitle: 'Tri-Vault Consensus Citadel',
     role: 'Financial Consensus Core',
     port: 3001,
-    position: [6.6, -1.6, -1.4],
-    color: '#8b5cf6', // violet-500
+    position: [4.8, -0.95, 2.2],
+    color: '#8B5CF6',
     status: 'HEALTHY',
     protocol: 'Viewstamped Replication (TCP 3001-3003)',
     securityInvariant: 'Decision D19: 2/3 Quorum Consensus; zero overdraft leakage (debits <= credits)',
+    zone: 'Core Banking Vault',
+    sculptureType: 'quorum-triad',
     details: {
       processType: '3 Distributed Replicas (tigerbeetle-0, -1, -2)',
       database: 'Native Immutable LSM / Pre-Allocated 0_0.tigerbeetle Data Files',
@@ -161,14 +418,17 @@ export const TOPOLOGY_NODES: TopologyNode[] = [
   {
     id: 'witness',
     name: 'Independent Witness',
-    subtitle: 'Cryptographic Merkle Notary',
+    silkScreenLabel: 'WITNESS :5000',
+    subtitle: 'Optical Merkle Notary Beacon',
     role: 'Tamper-Evident Notary',
     port: 5000,
-    position: [2.2, -2.6, 0.8],
-    color: '#f59e0b', // amber-500
+    position: [0.8, -0.95, 3.4],
+    color: '#F59E0B',
     status: 'HEALTHY',
     protocol: 'Fastify / RFC 6962 Merkle Log',
     securityInvariant: 'Invariant I9 & Decision D17: Standalone database (witness.db) & autonomous Ed25519 key',
+    zone: 'Witness Plane',
+    sculptureType: 'merkle-tower',
     details: {
       processType: 'Independent Witness Process',
       database: 'SQLite (witness.db totally isolated from Gateway)',
@@ -184,14 +444,17 @@ export const TOPOLOGY_NODES: TopologyNode[] = [
   {
     id: 'cockpit',
     name: 'Compliance Cockpit',
-    subtitle: 'Enterprise Banking Command',
+    silkScreenLabel: 'COCKPIT :3000',
+    subtitle: 'Glass Telemetry Console',
     role: 'Human Governance & FIDO2 RP',
     port: 3000,
-    position: [-3.2, -2.5, 0.6],
-    color: '#ec4899', // pink-500
+    position: [-2.8, -0.95, 3.4],
+    color: '#EC4899',
     status: 'HEALTHY',
     protocol: 'Next.js 14 / WebAuthn Level 3',
     securityInvariant: 'Decision D21: Transaction-bound 7-field digest WebAuthn step-up; Invariant I6 version tracking',
+    zone: 'Witness Plane',
+    sculptureType: 'cockpit-slab',
     details: {
       processType: 'Next.js 14 React 18 App Router Application',
       database: 'Server-Side Sessions & WebAuthn Store',
@@ -259,6 +522,15 @@ export const TOPOLOGY_LINKS: TopologyLink[] = [
     label: '6. VSR Quorum Commit (Post/Void)',
     protocol: 'Native u128 Transfer Protocol',
     trafficType: 'TWO_PHASE_HOLD',
+    status: 'ACTIVE',
+  },
+  {
+    id: 'link-witness-tb',
+    source: 'witness',
+    target: 'tigerbeetle',
+    label: '7. Merkle Tree Root Verification',
+    protocol: 'RFC 6962 SHA-256 Notary Audit',
+    trafficType: 'MERKLE_CHECKPOINT',
     status: 'ACTIVE',
   },
 ];
