@@ -2,21 +2,38 @@
 
 import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
 import {
-  Sparkles, CheckCircle2, AlertTriangle, XCircle, Clock, Shield,
+  Workflow, CheckCircle2, AlertTriangle, XCircle, Clock, Shield,
   ArrowRight, Play, RotateCcw, UserCheck, ShieldAlert, Cpu, Terminal,
   Check, Lock, Eye, AlertOctagon, CornerDownRight, HelpCircle,
   ExternalLink, Server, Database, Layers, Binary, KeyRound, ChevronRight,
-  Fingerprint, Compass, Network, Activity, FileCheck
+  Fingerprint, Compass, Network, Activity, FileCheck, ShieldCheck,
+  Gauge, Loader2, Zap
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { cn } from '@/lib/utils'
+import { use3DTilt } from '@/hooks/use3DTilt'
 import { PasskeyStepUpModal } from './passkey-stepup-modal'
 import { MerkleTreeVisualizer } from './merkle-tree-visualizer'
+
+const WorkflowPipeline3D = dynamic(
+  () => import('../workflow-studio/workflow-pipeline-3d').then((m) => m.WorkflowPipeline3D),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-[420px] w-full rounded-2xl bg-[#0b1120] border border-border/80 flex items-center justify-center text-xs font-mono text-muted-foreground animate-pulse">
+        Initializing 3D Multi-Agent Pipeline Stage...
+      </div>
+    ),
+  }
+)
 
 export interface AgentStep {
   step: number
   agentId: string
   name: string
+  shortName?: string
   role: string
   status: 'idle' | 'running' | 'completed' | 'blocked' | 'paused'
   decision?: 'ALLOW' | 'ASK' | 'DENY' | 'HOLD'
@@ -36,6 +53,7 @@ const INITIAL_AGENTS: AgentStep[] = [
     step: 1,
     agentId: 'agent-intent',
     name: 'Intent Understanding Agent',
+    shortName: 'Intent Parsing',
     role: 'Deconstructs natural language into mathematical financial invariants',
     status: 'idle',
     backendPath: 'POST /api/v1/intent/parse (Gateway :8081)',
@@ -46,6 +64,7 @@ const INITIAL_AGENTS: AgentStep[] = [
     step: 2,
     agentId: 'agent-mandate',
     name: 'Identity & Mandate Agent',
+    shortName: 'Mandate Match',
     role: 'Cryptographic Ed25519 agent signature & scoped mandate matching',
     status: 'idle',
     backendPath: 'GET /api/v1/mandates/MND_ELEC_101 (:4000)',
@@ -56,6 +75,7 @@ const INITIAL_AGENTS: AgentStep[] = [
     step: 3,
     agentId: 'agent-fraud',
     name: 'Fraud & Anomaly Agent (PaySim)',
+    shortName: 'Fraud & Anomaly',
     role: 'Multi-feature PaySim ML model & sliding-window smurfing velocity',
     status: 'idle',
     backendPath: 'DSL Policy: `paysim-benchmark` + `structuring-detector` (:8081)',
@@ -66,6 +86,7 @@ const INITIAL_AGENTS: AgentStep[] = [
     step: 4,
     agentId: 'agent-policy',
     name: 'Policy Decision Engine',
+    shortName: 'Policy Engine',
     role: 'Evaluates hard security invariants I1–I9 (Final routing: ALLOW / ASK / DENY)',
     status: 'idle',
     backendPath: 'Zero-Trust Gate Rule Engine (Deterministic)',
@@ -76,6 +97,7 @@ const INITIAL_AGENTS: AgentStep[] = [
     step: 5,
     agentId: 'agent-approval',
     name: 'Human Approval Gate (Passkey)',
+    shortName: 'Passkey Gate',
     role: 'FIDO2 / WebAuthn Biometric Step-Up for high-value & anomalous actions',
     status: 'idle',
     backendPath: 'POST /api/customer/approvals/verify (:8081)',
@@ -86,6 +108,7 @@ const INITIAL_AGENTS: AgentStep[] = [
     step: 6,
     agentId: 'agent-exec',
     name: 'Bank Execution Agent',
+    shortName: 'Bank Gate Exec',
     role: 'Mints 22-field Ed25519 Transaction-Bound Permit (TBP) to Bank Gate :4000',
     status: 'idle',
     backendPath: 'POST /api/v1/transactions/authorize & execute (:4000)',
@@ -96,6 +119,7 @@ const INITIAL_AGENTS: AgentStep[] = [
     step: 7,
     agentId: 'agent-recon',
     name: 'Reconciliation Agent',
+    shortName: 'Reconciliation',
     role: 'Two-phase commit ledger verification (RESERVED -> COMMITTED balance)',
     status: 'idle',
     backendPath: 'Ledger Engine: FinancialReconciliationService (:4000)',
@@ -106,6 +130,7 @@ const INITIAL_AGENTS: AgentStep[] = [
     step: 8,
     agentId: 'agent-audit',
     name: 'Audit & Witness Agent',
+    shortName: 'Audit & Witness',
     role: 'Appends SHA-256 Merkle leaf and obtains signature from Witness :5000',
     status: 'idle',
     backendPath: 'POST /api/v1/checkpoints (Independent Witness :5000)',
@@ -115,12 +140,38 @@ const INITIAL_AGENTS: AgentStep[] = [
 ]
 
 export function AutonomousWorkflowStudio() {
+  // Activate 3D micro-tilt on all .tilt-3d cards (with prefers-reduced-motion safety)
+  use3DTilt(true)
+
   const [inputMode, setInputMode] = useState<'natural' | 'structured' | 'invoice'>('natural')
   const [prompt, setPrompt] = useState<string>('Pay my electricity bill of ₹2,450 to my registered provider Torrent Power.')
   const [accountRef, setAccountRef] = useState<string>('HDFC-ACC-40912')
   const [payee, setPayee] = useState<string>('Torrent Power Ltd (MND_ELEC_101)')
   const [amountRupees, setAmountRupees] = useState<number>(2450)
-  
+
+  // Orchestration & Pacing Controls
+  const [speedMode, setSpeedMode] = useState<'1x' | '0.5x'>('1x')
+  const speedMultiplier = speedMode === '0.5x' ? 1.75 : 1.0
+  const stepDelay = (baseMs: number) => Math.round(baseMs * speedMultiplier)
+
+  // Live Latency Telemetry Simulation (tabular-nums with live jitter)
+  const [latencies, setLatencies] = useState({
+    gateway: 1.8,
+    bankGate: 4.2,
+    witness: 3.1,
+  })
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setLatencies({
+        gateway: Number((1.6 + Math.random() * 0.5).toFixed(1)),
+        bankGate: Number((4.0 + Math.random() * 0.5).toFixed(1)),
+        witness: Number((2.9 + Math.random() * 0.4).toFixed(1)),
+      })
+    }, 2800)
+    return () => clearInterval(interval)
+  }, [])
+
   const [agents, setAgents] = useState<AgentStep[]>(INITIAL_AGENTS)
   const [activeStepIndex, setActiveStepIndex] = useState<number>(-1)
   const [selectedAgent, setSelectedAgent] = useState<AgentStep>(INITIAL_AGENTS[0])
@@ -137,6 +188,17 @@ export function AutonomousWorkflowStudio() {
       setSelectedAgent(agents[activeStepIndex])
     }
   }, [activeStepIndex, agents])
+
+  // Reset Pipeline to Clean Initial State
+  const handleReset = () => {
+    setWorkflowStatus('idle')
+    setExecutionReceipt(null)
+    setActiveStepIndex(-1)
+    const resetAgents = INITIAL_AGENTS.map(a => ({ ...a, status: 'idle' as const }))
+    setAgents(resetAgents)
+    setSelectedAgent(resetAgents[0])
+    toast.info('Workflow orchestrator reset to idle state.')
+  }
 
   // Run the autonomous agent sequential pipeline with full real backend proofs
   const runWorkflow = (triggerMode: 'standard' | 'high_value' | 'malicious') => {
@@ -158,7 +220,7 @@ export function AutonomousWorkflowStudio() {
         summary: 'Parsing natural language token stream via NLP intent classifier...',
         inputContext: { raw_text: prompt, channel: 'NATURAL_LANGUAGE', timestamp: Date.now() },
       } : a))
-      
+
       setTimeout(() => {
         setAgents(prev => prev.map((a, idx) => idx === 0 ? {
           ...a,
@@ -285,11 +347,11 @@ export function AutonomousWorkflowStudio() {
                 } : a))
                 proceedToExecution(amt, payeeTarget)
               }
-            }, 600)
-          }, 600)
-        }, 600)
-      }, 700)
-    }, 400)
+            }, stepDelay(600))
+          }, stepDelay(600))
+        }, stepDelay(600))
+      }, stepDelay(700))
+    }, stepDelay(400))
   }
 
   // Completes steps 6, 7, 8
@@ -369,9 +431,9 @@ export function AutonomousWorkflowStudio() {
             completedAt: new Date().toLocaleTimeString(),
           })
           toast.success(`Workflow Completed! ₹${amt.toLocaleString('en-IN')} successfully settled.`)
-        }, 600)
-      }, 600)
-    }, 700)
+        }, stepDelay(600))
+      }, stepDelay(600))
+    }, stepDelay(700))
   }
 
   // Handle Human Decisions: Accept, Deny, Hold
@@ -411,60 +473,252 @@ export function AutonomousWorkflowStudio() {
     proceedToExecution(amountRupees, payee)
   }
 
+  // Active Service Highlights based on currently active/running step
+  const isGatewayActive = workflowStatus === 'running' && activeStepIndex >= 0 && activeStepIndex <= 4
+  const isGatewayHalted = (workflowStatus === 'denied' || workflowStatus === 'held') && activeStepIndex <= 4
+  const isGatewayPaused = workflowStatus === 'waiting_approval'
+
+  const isBankGateActive = workflowStatus === 'running' && (activeStepIndex === 5 || activeStepIndex === 6)
+  const isBankGateHalted = (workflowStatus === 'denied' || workflowStatus === 'held') && (activeStepIndex === 5 || activeStepIndex === 6)
+
+  const isWitnessActive = workflowStatus === 'running' && activeStepIndex === 7
+  const isWitnessHalted = (workflowStatus === 'denied' || workflowStatus === 'held') && activeStepIndex === 7
+
+  // Parsed intent detection
+  const hasParsedIntent = agents[0].status === 'completed' || executionReceipt !== null || workflowStatus === 'completed' || workflowStatus === 'waiting_approval' || workflowStatus === 'denied'
+
   return (
     <div className="space-y-6 min-w-0 w-full">
-      {/* ── LIVE BACKEND HEALTH CARDS (Showing REAL Services) ─────────────── */}
+      {/* ── LIVE BACKEND HEALTH CARDS (Showing REAL Services with 3D Micro-Tilt & Latency) ── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="p-3.5 rounded-xl border border-border bg-card shadow-sm flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <Server className="h-4 w-4 text-primary" />
-            <div>
-              <div className="text-xs font-bold text-foreground">Gateway MCP Proxy</div>
-              <div className="text-[10px] font-mono text-muted-foreground">Port :8081 · Pre-Execution Filter</div>
+        {/* Card 1: Gateway MCP Proxy */}
+        <div
+          className={cn(
+            "tilt-3d p-4 rounded-xl border bg-card shadow-sm transition-[border-color,box-shadow,background-color] duration-200 relative overflow-hidden",
+            isGatewayHalted
+              ? "border-rose-500/60 bg-rose-500/5 shadow-[0_0_15px_rgba(244,63,94,0.12)]"
+              : isGatewayPaused
+              ? "border-amber-500/60 bg-amber-500/5 shadow-[0_0_15px_rgba(245,158,11,0.12)]"
+              : isGatewayActive
+              ? "border-primary shadow-[0_0_18px_rgba(59,130,246,0.18)] ring-1 ring-primary/40"
+              : "border-border/80"
+          )}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className={cn(
+                "p-2 rounded-lg border flex items-center justify-center transition-colors shrink-0",
+                isGatewayHalted
+                  ? "bg-rose-500/10 border-rose-500/30 text-rose-500"
+                  : isGatewayPaused
+                  ? "bg-amber-500/10 border-amber-500/30 text-amber-500"
+                  : isGatewayActive
+                  ? "bg-primary/10 border-primary/30 text-primary"
+                  : "bg-secondary border-border/80 text-foreground"
+              )}>
+                <Server className="h-4 w-4" strokeWidth={1.6} />
+              </div>
+              <div className="min-w-0">
+                <div className="text-xs font-bold text-foreground flex items-center gap-1.5 truncate">
+                  <span>Gateway MCP Proxy</span>
+                  <span className="font-mono text-[10px] text-muted-foreground font-semibold px-1 py-0.2 rounded bg-secondary border border-border/60 shrink-0">
+                    :8081
+                  </span>
+                </div>
+                <div className="text-[10px] font-mono text-muted-foreground mt-0.5 truncate">
+                  Pre-Execution Filter · Steps 01–05
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-col items-end gap-1 shrink-0">
+              <span
+                className={cn(
+                  "px-2 py-0.5 rounded text-[10px] font-mono font-bold border tracking-wider flex items-center gap-1.5",
+                  isGatewayHalted
+                    ? "bg-rose-500/15 text-rose-500 border-rose-500/30"
+                    : isGatewayPaused
+                    ? "bg-amber-500/15 text-amber-500 border-amber-500/30 animate-pulse"
+                    : isGatewayActive
+                    ? "bg-primary/15 text-primary border-primary/30 animate-pulse"
+                    : "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+                )}
+              >
+                <span
+                  className={cn(
+                    "h-1.5 w-1.5 rounded-full shrink-0",
+                    isGatewayHalted
+                      ? "bg-rose-500"
+                      : isGatewayPaused
+                      ? "bg-amber-500 animate-ping"
+                      : isGatewayActive
+                      ? "bg-primary animate-ping"
+                      : "bg-emerald-500"
+                  )}
+                />
+                {isGatewayHalted
+                  ? "HALTED · I2 DENY"
+                  : isGatewayPaused
+                  ? "PAUSED · STEP-UP"
+                  : isGatewayActive
+                  ? "FILTERING (01–05)"
+                  : "ONLINE"}
+              </span>
+              <span className="text-[10px] font-mono tabular-nums text-muted-foreground">
+                latency <strong className="text-foreground">{latencies.gateway}ms</strong>
+              </span>
             </div>
           </div>
-          <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-500 font-bold border border-emerald-500/20">
-            ONLINE
-          </span>
         </div>
 
-        <div className="p-3.5 rounded-xl border border-border bg-card shadow-sm flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <Shield className="h-4 w-4 text-emerald-500" />
-            <div>
-              <div className="text-xs font-bold text-foreground">Bank Gate Engine</div>
-              <div className="text-[10px] font-mono text-muted-foreground">Port :4000 · Ed25519 Single-Use TBP</div>
+        {/* Card 2: Bank Gate Engine */}
+        <div
+          className={cn(
+            "tilt-3d p-4 rounded-xl border bg-card shadow-sm transition-[border-color,box-shadow,background-color] duration-200 relative overflow-hidden",
+            isBankGateHalted
+              ? "border-rose-500/60 bg-rose-500/5 shadow-[0_0_15px_rgba(244,63,94,0.12)]"
+              : isBankGateActive
+              ? "border-emerald-500 shadow-[0_0_18px_rgba(16,185,129,0.18)] ring-1 ring-emerald-500/40"
+              : "border-border/80"
+          )}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className={cn(
+                "p-2 rounded-lg border flex items-center justify-center transition-colors shrink-0",
+                isBankGateHalted
+                  ? "bg-rose-500/10 border-rose-500/30 text-rose-500"
+                  : isBankGateActive
+                  ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-500"
+                  : "bg-secondary border-border/80 text-foreground"
+              )}>
+                <ShieldCheck className="h-4 w-4 text-emerald-500" strokeWidth={1.6} />
+              </div>
+              <div className="min-w-0">
+                <div className="text-xs font-bold text-foreground flex items-center gap-1.5 truncate">
+                  <span>Bank Gate Engine</span>
+                  <span className="font-mono text-[10px] text-muted-foreground font-semibold px-1 py-0.2 rounded bg-secondary border border-border/60 shrink-0">
+                    :4000
+                  </span>
+                </div>
+                <div className="text-[10px] font-mono text-muted-foreground mt-0.5 truncate">
+                  Ed25519 Single-Use TBP · Steps 06–07
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-col items-end gap-1 shrink-0">
+              <span
+                className={cn(
+                  "px-2 py-0.5 rounded text-[10px] font-mono font-bold border tracking-wider flex items-center gap-1.5",
+                  isBankGateHalted
+                    ? "bg-rose-500/15 text-rose-500 border-rose-500/30"
+                    : isBankGateActive
+                    ? "bg-emerald-500/15 text-emerald-500 border-emerald-500/30 animate-pulse"
+                    : "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+                )}
+              >
+                <span
+                  className={cn(
+                    "h-1.5 w-1.5 rounded-full shrink-0",
+                    isBankGateHalted
+                      ? "bg-rose-500"
+                      : isBankGateActive
+                      ? "bg-emerald-500 animate-ping"
+                      : "bg-emerald-500"
+                  )}
+                />
+                {isBankGateHalted
+                  ? "REJECTED"
+                  : isBankGateActive
+                  ? "AUTHORIZING (06–07)"
+                  : "ONLINE"}
+              </span>
+              <span className="text-[10px] font-mono tabular-nums text-muted-foreground">
+                latency <strong className="text-foreground">{latencies.bankGate}ms</strong>
+              </span>
             </div>
           </div>
-          <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-500 font-bold border border-emerald-500/20">
-            ONLINE
-          </span>
         </div>
 
-        <div className="p-3.5 rounded-xl border border-border bg-card shadow-sm flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <Binary className="h-4 w-4 text-indigo-500" />
-            <div>
-              <div className="text-xs font-bold text-foreground">Independent Witness</div>
-              <div className="text-[10px] font-mono text-muted-foreground">Port :5000 · SHA-256 Merkle Ledger</div>
+        {/* Card 3: Independent Witness */}
+        <div
+          className={cn(
+            "tilt-3d p-4 rounded-xl border bg-card shadow-sm transition-[border-color,box-shadow,background-color] duration-200 relative overflow-hidden",
+            isWitnessHalted
+              ? "border-rose-500/60 bg-rose-500/5 shadow-[0_0_15px_rgba(244,63,94,0.12)]"
+              : isWitnessActive
+              ? "border-indigo-500 shadow-[0_0_18px_rgba(99,102,241,0.18)] ring-1 ring-indigo-500/40"
+              : "border-border/80"
+          )}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className={cn(
+                "p-2 rounded-lg border flex items-center justify-center transition-colors shrink-0",
+                isWitnessHalted
+                  ? "bg-rose-500/10 border-rose-500/30 text-rose-500"
+                  : isWitnessActive
+                  ? "bg-indigo-500/10 border-indigo-500/30 text-indigo-500"
+                  : "bg-secondary border-border/80 text-foreground"
+              )}>
+                <Binary className="h-4 w-4 text-indigo-500" strokeWidth={1.6} />
+              </div>
+              <div className="min-w-0">
+                <div className="text-xs font-bold text-foreground flex items-center gap-1.5 truncate">
+                  <span>Independent Witness</span>
+                  <span className="font-mono text-[10px] text-muted-foreground font-semibold px-1 py-0.2 rounded bg-secondary border border-border/60 shrink-0">
+                    :5000
+                  </span>
+                </div>
+                <div className="text-[10px] font-mono text-muted-foreground mt-0.5 truncate">
+                  SHA-256 Merkle Ledger · Step 08
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-col items-end gap-1 shrink-0">
+              <span
+                className={cn(
+                  "px-2 py-0.5 rounded text-[10px] font-mono font-bold border tracking-wider flex items-center gap-1.5",
+                  isWitnessHalted
+                    ? "bg-rose-500/15 text-rose-500 border-rose-500/30"
+                    : isWitnessActive
+                    ? "bg-indigo-500/15 text-indigo-500 border-indigo-500/30 animate-pulse"
+                    : "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+                )}
+              >
+                <span
+                  className={cn(
+                    "h-1.5 w-1.5 rounded-full shrink-0",
+                    isWitnessHalted
+                      ? "bg-rose-500"
+                      : isWitnessActive
+                      ? "bg-indigo-500 animate-ping"
+                      : "bg-emerald-500"
+                  )}
+                />
+                {isWitnessHalted
+                  ? "ROLLBACK"
+                  : isWitnessActive
+                  ? "CO-SIGNING (08)"
+                  : "ONLINE"}
+              </span>
+              <span className="text-[10px] font-mono tabular-nums text-muted-foreground">
+                latency <strong className="text-foreground">{latencies.witness}ms</strong>
+              </span>
             </div>
           </div>
-          <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-500 font-bold border border-emerald-500/20">
-            ONLINE
-          </span>
         </div>
       </div>
 
-      {/* ── PANEL 1: WORKFLOW INTAKE (Input from where we start) ────────── */}
-      <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-5">
+      {/* ── PANEL 1: WORKFLOW INTAKE STUDIO ─────────────────────────────── */}
+      <div className="rounded-2xl border border-border bg-card p-6 shadow-sm space-y-4">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
-              <Sparkles className="h-5 w-5 text-primary" />
+              <Workflow className="h-5 w-5 text-primary" strokeWidth={1.6} />
               <h3 className="text-base font-bold text-foreground">
                 Autonomous Banking Task Intake
               </h3>
-              <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-primary/10 text-primary border border-primary/20">
+              <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-primary/10 text-primary border border-primary/20 font-bold uppercase tracking-wider">
                 Phase 1: Human-to-Agent Translation
               </span>
             </div>
@@ -473,7 +727,7 @@ export function AutonomousWorkflowStudio() {
             </p>
           </div>
 
-          {/* Quick presets */}
+          {/* Quick presets row */}
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => {
@@ -483,10 +737,10 @@ export function AutonomousWorkflowStudio() {
                 runWorkflow('standard')
               }}
               disabled={workflowStatus === 'running'}
-              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-secondary hover:bg-secondary/80 text-foreground transition flex items-center gap-1.5 border border-border shadow-sm"
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-secondary hover:bg-secondary/80 text-foreground transition flex items-center gap-1.5 border border-border shadow-sm group disabled:opacity-50"
             >
-              <Play className="h-3 w-3 text-emerald-500" />
-              Normal Bill (₹2,450)
+              <Play className="h-3.5 w-3.5 text-emerald-500 fill-emerald-500/20 group-hover:scale-105 transition-transform" strokeWidth={1.6} />
+              <span>Normal Bill (₹2,450)</span>
             </button>
 
             <button
@@ -497,10 +751,10 @@ export function AutonomousWorkflowStudio() {
                 runWorkflow('high_value')
               }}
               disabled={workflowStatus === 'running'}
-              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-secondary hover:bg-secondary/80 text-foreground transition flex items-center gap-1.5 border border-border shadow-sm"
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-secondary hover:bg-secondary/80 text-foreground transition flex items-center gap-1.5 border border-border shadow-sm group disabled:opacity-50"
             >
-              <Lock className="h-3 w-3 text-amber-500" />
-              High-Value Step-Up (₹1.25L)
+              <Lock className="h-3.5 w-3.5 text-amber-500 group-hover:scale-105 transition-transform" strokeWidth={1.6} />
+              <span>High-Value Step-Up (₹1.25L)</span>
             </button>
 
             <button
@@ -511,33 +765,59 @@ export function AutonomousWorkflowStudio() {
                 runWorkflow('malicious')
               }}
               disabled={workflowStatus === 'running'}
-              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 transition flex items-center gap-1.5 border border-rose-500/30 shadow-sm"
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 transition flex items-center gap-1.5 border border-rose-500/30 shadow-sm group disabled:opacity-50"
             >
-              <ShieldAlert className="h-3 w-3 text-rose-500" />
-              Prompt Injection Attack
+              <ShieldAlert className="h-3.5 w-3.5 text-rose-500 group-hover:scale-105 transition-transform" strokeWidth={1.6} />
+              <span>Prompt Injection Attack</span>
             </button>
           </div>
         </div>
 
-        {/* Input Bar */}
+        {/* Input Bar & Orchestration Strip */}
         <div className="space-y-3">
-          <div className="flex gap-2">
-            <button
-              onClick={() => setInputMode('natural')}
-              className={`px-3 py-1 rounded-md text-xs font-medium transition ${
-                inputMode === 'natural' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
-              }`}
-            >
-              Natural Language Prompt
-            </button>
-            <button
-              onClick={() => setInputMode('structured')}
-              className={`px-3 py-1 rounded-md text-xs font-medium transition ${
-                inputMode === 'structured' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
-              }`}
-            >
-              Structured Bank Parameters
-            </button>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex gap-2">
+              <button
+                onClick={() => setInputMode('natural')}
+                className={cn(
+                  "px-3 py-1 rounded-md text-xs font-medium transition",
+                  inputMode === 'natural' ? 'bg-primary text-primary-foreground font-semibold' : 'bg-muted text-muted-foreground hover:text-foreground'
+                )}
+              >
+                Natural Language Prompt
+              </button>
+              <button
+                onClick={() => setInputMode('structured')}
+                className={cn(
+                  "px-3 py-1 rounded-md text-xs font-medium transition",
+                  inputMode === 'structured' ? 'bg-primary text-primary-foreground font-semibold' : 'bg-muted text-muted-foreground hover:text-foreground'
+                )}
+              >
+                Structured Bank Parameters
+              </button>
+            </div>
+
+            {/* Orchestration Controls (Speed & Reset) */}
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => setSpeedMode(prev => prev === '1x' ? '0.5x' : '1x')}
+                className="px-2.5 py-1 rounded-lg border border-border bg-secondary/70 hover:bg-secondary text-xs font-mono font-medium text-foreground transition flex items-center gap-1.5"
+                title="Toggle pipeline execution pacing"
+              >
+                <Gauge className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.6} />
+                <span>Pacing: <strong className="text-primary">{speedMode}</strong></span>
+              </button>
+
+              <button
+                onClick={handleReset}
+                disabled={workflowStatus === 'idle' && activeStepIndex === -1}
+                className="px-2.5 py-1 rounded-lg border border-border bg-secondary/70 hover:bg-secondary text-xs font-medium text-foreground transition flex items-center gap-1.5 disabled:opacity-40"
+                title="Reset pipeline and state to idle"
+              >
+                <RotateCcw className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.6} />
+                <span>Reset</span>
+              </button>
+            </div>
           </div>
 
           {inputMode === 'natural' ? (
@@ -547,15 +827,15 @@ export function AutonomousWorkflowStudio() {
                 value={prompt}
                 onChange={e => setPrompt(e.target.value)}
                 placeholder="Type instruction, e.g., 'Pay ₹2,450 for electricity bill to registered payee'..."
-                className="w-full bg-secondary/60 border border-border rounded-xl px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary shadow-inner"
+                className="w-full bg-secondary/60 border border-border rounded-xl px-4 py-3 pr-36 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary shadow-inner"
               />
               <button
                 onClick={() => runWorkflow('standard')}
                 disabled={workflowStatus === 'running'}
-                className="absolute right-2 top-2 px-4 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:bg-primary/90 transition flex items-center gap-1.5 shadow"
+                className="absolute right-2 top-2 px-4 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:bg-primary/90 transition flex items-center gap-1.5 shadow disabled:opacity-50"
               >
-                <Play className="h-3.5 w-3.5 fill-current" />
-                Start AI Pipeline
+                <Play className="h-3.5 w-3.5 fill-current" strokeWidth={1.6} />
+                <span>Start AI Pipeline</span>
               </button>
             </div>
           ) : (
@@ -589,19 +869,76 @@ export function AutonomousWorkflowStudio() {
               </div>
             </div>
           )}
+
+          {/* Live Parsed Intent Entity Strip (Animates in once Step 01 completes) */}
+          {hasParsedIntent && (
+            <div className="p-3.5 rounded-xl border border-border/80 bg-secondary/40 backdrop-blur-sm animate-in fade-in slide-in-from-top-2 duration-300">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-2">
+                  <FileCheck className="h-4 w-4 text-primary shrink-0" strokeWidth={1.6} />
+                  <span className="font-bold text-foreground">Extracted Financial Invariants:</span>
+                  <span className="font-mono text-muted-foreground">NLP Intent Classifier (Rule E1)</span>
+                </div>
+                <div className="flex items-center gap-3 text-[11px] font-mono">
+                  <span className="text-muted-foreground">
+                    Precision: <strong className="text-emerald-500 font-semibold">Zero-Float Integer Paise</strong>
+                  </span>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 mt-2.5 pt-2.5 border-t border-border/60">
+                <div className="p-2.5 rounded-lg bg-card/70 border border-border/60 shadow-sm">
+                  <div className="text-[10px] uppercase font-mono text-muted-foreground font-semibold">Target Payee</div>
+                  <div className="text-xs font-semibold text-foreground truncate mt-0.5" title={agents[0].outputContext?.payee || payee}>
+                    {agents[0].outputContext?.payee || payee}
+                  </div>
+                </div>
+                <div className="p-2.5 rounded-lg bg-card/70 border border-border/60 shadow-sm">
+                  <div className="text-[10px] uppercase font-mono text-muted-foreground font-semibold">Parsed Amount</div>
+                  <div className="text-xs font-bold text-foreground mt-0.5 tabular-nums">
+                    ₹{amountRupees.toLocaleString('en-IN')}{' '}
+                    <span className="text-[10px] font-mono text-muted-foreground">({(amountRupees * 100).toLocaleString('en-IN')} paise)</span>
+                  </div>
+                </div>
+                <div className="p-2.5 rounded-lg bg-card/70 border border-border/60 shadow-sm">
+                  <div className="text-[10px] uppercase font-mono text-muted-foreground font-semibold">Purpose & Scope</div>
+                  <div className="text-xs font-semibold text-foreground mt-0.5 truncate">
+                    {amountRupees >= 100000 ? 'Vendor Settlement (High Value)' : payee.includes('ATTACKER') ? 'Prompt Injection Simulation' : 'Utility Electricity Bill (MND_ELEC_101)'}
+                  </div>
+                </div>
+                <div className="p-2.5 rounded-lg bg-card/70 border border-border/60 shadow-sm">
+                  <div className="text-[10px] uppercase font-mono text-muted-foreground font-semibold">Risk Verdict</div>
+                  <div className="mt-0.5 flex items-center gap-1.5">
+                    {payee.includes('ATTACKER') || agents[1].status === 'blocked' ? (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-rose-500/10 text-rose-500 border border-rose-500/30">
+                        <ShieldAlert className="h-3 w-3 shrink-0" strokeWidth={1.6} /> CRITICAL DIVERSION
+                      </span>
+                    ) : amountRupees >= 100000 ? (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/10 text-amber-500 border border-amber-500/30">
+                        <AlertTriangle className="h-3 w-3 shrink-0" strokeWidth={1.6} /> ELEVATED (STEP-UP)
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-500 border border-emerald-500/30">
+                        <Check className="h-3 w-3 shrink-0" strokeWidth={1.6} /> BENIGN (AUTO-CLEAR)
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* ── PANEL 2: LIVE MULTI-AGENT PIPELINE & 3D TOPOLOGY ─────────────── */}
+      {/* ── PANEL 2: LIVE MULTI-AGENT PIPELINE & STEPPER RAIL ────────────── */}
       <div className="rounded-2xl border border-border bg-card p-6 shadow-sm space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-border pb-3">
           <div>
             <h4 className="text-sm font-bold text-foreground flex items-center gap-2">
-              <Cpu className="h-4 w-4 text-primary" />
-              Live Multi-Agent Pipeline & Handoff Topology
+              <Cpu className="h-4 w-4 text-primary" strokeWidth={1.6} />
+              <span>Live Multi-Agent Pipeline & Handoff Topology</span>
             </h4>
-            <p className="text-xs text-muted-foreground">
-              Watch agents hand off control automatically. Click any node to inspect live decision telemetry below.
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Watch agents hand off control automatically across Zero-Trust checkpoints. Click any node to inspect live decision telemetry below.
             </p>
           </div>
 
@@ -625,7 +962,59 @@ export function AutonomousWorkflowStudio() {
           </div>
         </div>
 
-        {/* 8-Agent Sequential Visual Nodes */}
+        {/* ── 3D Interactive Multi-Agent Pipeline Stage (Hero Diorama) ── */}
+        <WorkflowPipeline3D
+          agents={agents}
+          activeStepIndex={activeStepIndex}
+          selectedStepIndex={agents.findIndex(a => a.agentId === selectedAgent.agentId)}
+          onSelectStep={(idx) => {
+            if (agents[idx]) setSelectedAgent(agents[idx])
+          }}
+          workflowStatus={workflowStatus}
+          payee={payee}
+          amountRupees={amountRupees}
+        />
+
+        {/* Directional Progress Conduit Rail */}
+        <div className="space-y-1.5 pt-1">
+          <div className="flex items-center justify-between text-[10px] font-mono text-muted-foreground px-0.5">
+            <span className="flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+              <span>Step 01 Intent Intake</span>
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span>Step 08 Witness Co-sign</span>
+              <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
+            </span>
+          </div>
+          <div className="relative h-1.5 w-full bg-secondary rounded-full overflow-hidden border border-border/60">
+            <div
+              className={cn(
+                "absolute left-0 top-0 bottom-0 rounded-full transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                workflowStatus === 'denied'
+                  ? "bg-rose-500"
+                  : workflowStatus === 'waiting_approval'
+                  ? "bg-amber-500"
+                  : "bg-gradient-to-r from-primary via-emerald-500 to-indigo-500"
+              )}
+              style={{
+                width: activeStepIndex >= 0
+                  ? `${Math.min(100, ((activeStepIndex + (workflowStatus === 'completed' ? 1 : 0.5)) / 8) * 100)}%`
+                  : '0%',
+              }}
+            />
+            {workflowStatus === 'running' && (
+              <div
+                className="absolute top-0 bottom-0 w-24 bg-white/30 blur-[2px] animate-pulse"
+                style={{
+                  left: `${Math.max(0, (activeStepIndex / 8) * 100 - 10)}%`,
+                }}
+              />
+            )}
+          </div>
+        </div>
+
+        {/* 8-Agent Sequential Visual Nodes Rail */}
         <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-3 pt-2 min-w-0">
           {agents.map((ag) => {
             const isSelected = selectedAgent.agentId === ag.agentId
@@ -638,44 +1027,59 @@ export function AutonomousWorkflowStudio() {
               <button
                 key={ag.agentId}
                 onClick={() => setSelectedAgent(ag)}
-                className={`p-3 rounded-xl border text-left transition-all relative flex flex-col justify-between min-h-[125px] ${
-                  isSelected ? 'ring-2 ring-primary border-primary shadow-lg' : 'border-border bg-secondary/20 hover:bg-secondary/40'
-                } ${
-                  isCompleted ? 'border-emerald-500/40 bg-emerald-500/5' :
-                  isRunning ? 'border-blue-500/60 bg-blue-500/10 shadow-md shadow-blue-500/10' :
-                  isBlocked ? 'border-rose-500/60 bg-rose-500/10' :
-                  isPaused ? 'border-amber-500/60 bg-amber-500/10 animate-pulse' : ''
-                }`}
+                className={cn(
+                  "p-3 rounded-xl border text-left transition-[border-color,box-shadow,transform,background-color] duration-200 relative flex flex-col justify-between min-h-[136px] group",
+                  isSelected
+                    ? "ring-2 ring-primary border-primary shadow-lg"
+                    : "border-border/80 bg-secondary/20 hover:bg-secondary/40",
+                  isCompleted && "border-emerald-500/50 bg-emerald-500/5 shadow-[0_0_12px_rgba(16,185,129,0.08)]",
+                  isRunning && "border-blue-500/70 bg-blue-500/10 shadow-[0_0_16px_rgba(59,130,246,0.2)] ring-1 ring-blue-500/40",
+                  isBlocked && "border-rose-500/60 bg-rose-500/10 shadow-[0_0_12px_rgba(244,63,94,0.15)]",
+                  isPaused && "border-amber-500/60 bg-amber-500/10 shadow-[0_0_14px_rgba(245,158,11,0.2)]"
+                )}
               >
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-[10px] font-mono text-muted-foreground font-bold">
-                      0{ag.step}
+                    <span className="text-[10px] font-mono text-muted-foreground font-bold tracking-wider">
+                      STEP 0{ag.step}
                     </span>
-                    {isCompleted && <CheckCircle2 className="h-4 w-4 text-emerald-500" />}
-                    {isRunning && <span className="h-2.5 w-2.5 rounded-full bg-blue-500 animate-ping" />}
-                    {isBlocked && <XCircle className="h-4 w-4 text-rose-500" />}
-                    {isPaused && <AlertTriangle className="h-4 w-4 text-amber-500" />}
+                    {isCompleted && <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" strokeWidth={1.6} />}
+                    {isRunning && (
+                      <span className="flex items-center justify-center h-4 w-4">
+                        <Loader2 className="h-3.5 w-3.5 text-blue-500 animate-spin" strokeWidth={1.6} />
+                      </span>
+                    )}
+                    {isBlocked && <XCircle className="h-4 w-4 text-rose-500 shrink-0" strokeWidth={1.6} />}
+                    {isPaused && <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 animate-bounce" strokeWidth={1.6} />}
+                    {!isCompleted && !isRunning && !isBlocked && !isPaused && (
+                      <Clock className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" strokeWidth={1.6} />
+                    )}
                   </div>
-                  <h5 className="text-[11px] font-bold text-foreground leading-tight line-clamp-2">
-                    {ag.name}
+
+                  <h5 className="text-xs font-bold text-foreground leading-snug truncate" title={ag.name}>
+                    {ag.shortName || ag.name}
                   </h5>
+                  <p className="text-[10px] text-muted-foreground line-clamp-1 mt-0.5" title={ag.role}>
+                    {ag.role}
+                  </p>
                 </div>
 
-                <div className="mt-2 space-y-1">
-                  <span className={`inline-block text-[9px] font-mono uppercase px-1.5 py-0.5 rounded font-bold ${
-                    isCompleted ? 'bg-emerald-500/20 text-emerald-500' :
-                    isRunning ? 'bg-blue-500/20 text-blue-500' :
-                    isBlocked ? 'bg-rose-500/20 text-rose-500' :
-                    isPaused ? 'bg-amber-500/20 text-amber-500' : 'bg-muted text-muted-foreground'
-                  }`}>
-                    {ag.status}
+                <div className="mt-2.5 pt-2 border-t border-border/50 flex items-center justify-between gap-1">
+                  <span className={cn(
+                    "inline-block text-[9px] font-mono uppercase px-1.5 py-0.5 rounded font-bold tracking-wider truncate",
+                    isCompleted && "bg-emerald-500/20 text-emerald-500 border border-emerald-500/30",
+                    isRunning && "bg-blue-500/20 text-blue-500 border border-blue-500/30 animate-pulse",
+                    isBlocked && "bg-rose-500/20 text-rose-500 border border-rose-500/30",
+                    isPaused && "bg-amber-500/20 text-amber-500 border border-amber-500/30",
+                    !isCompleted && !isRunning && !isBlocked && !isPaused && "bg-secondary text-muted-foreground border border-border/60"
+                  )}>
+                    {isPaused ? 'PASSKEY' : ag.status}
                   </span>
-                  {ag.durationMs ? (
-                    <div className="text-[9px] font-mono text-muted-foreground">
+                  {ag.durationMs !== undefined && (
+                    <span className="text-[9px] font-mono tabular-nums text-muted-foreground font-semibold shrink-0">
                       {ag.durationMs}ms
-                    </div>
-                  ) : null}
+                    </span>
+                  )}
                 </div>
               </button>
             )
@@ -736,34 +1140,30 @@ export function AutonomousWorkflowStudio() {
           <div className="flex items-center gap-3">
             <button
               onClick={() => setActiveTab('topology')}
-              className={`text-xs font-bold px-3 py-1.5 rounded-lg transition ${
-                activeTab === 'topology' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary'
-              }`}
+              className={`text-xs font-bold px-3 py-1.5 rounded-lg transition ${activeTab === 'topology' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary'
+                }`}
             >
               Agent Inspector: {selectedAgent.name}
             </button>
             <button
               onClick={() => setActiveTab('merkle_tree')}
-              className={`text-xs font-bold px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 ${
-                activeTab === 'merkle_tree' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary'
-              }`}
+              className={`text-xs font-bold px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 ${activeTab === 'merkle_tree' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary'
+                }`}
             >
               <Binary className="h-3.5 w-3.5" />
               <span>Cryptographic Merkle Tree</span>
             </button>
             <button
               onClick={() => setActiveTab('audit_proof')}
-              className={`text-xs font-bold px-3 py-1.5 rounded-lg transition ${
-                activeTab === 'audit_proof' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary'
-              }`}
+              className={`text-xs font-bold px-3 py-1.5 rounded-lg transition ${activeTab === 'audit_proof' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary'
+                }`}
             >
               Bank Gate & Witness Proof
             </button>
             <button
               onClick={() => setActiveTab('backend_status')}
-              className={`text-xs font-bold px-3 py-1.5 rounded-lg transition ${
-                activeTab === 'backend_status' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary'
-              }`}
+              className={`text-xs font-bold px-3 py-1.5 rounded-lg transition ${activeTab === 'backend_status' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary'
+                }`}
             >
               Live Backend Architecture
             </button>
