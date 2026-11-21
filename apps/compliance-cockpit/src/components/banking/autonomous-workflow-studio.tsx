@@ -412,7 +412,7 @@ export function AutonomousWorkflowStudio() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 min-w-0 w-full">
       {/* ── LIVE BACKEND HEALTH CARDS (Showing REAL Services) ─────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="p-3.5 rounded-xl border border-border bg-card shadow-sm flex items-center justify-between">
@@ -626,7 +626,7 @@ export function AutonomousWorkflowStudio() {
         </div>
 
         {/* 8-Agent Sequential Visual Nodes */}
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 pt-2">
+        <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-3 pt-2 min-w-0">
           {agents.map((ag) => {
             const isSelected = selectedAgent.agentId === ag.agentId
             const isRunning = ag.status === 'running'

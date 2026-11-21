@@ -2,13 +2,12 @@
 
 import React, { useRef, useState, useMemo, useEffect } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { OrbitControls } from '@react-three/drei'
+import { OrbitControls, Environment, Lightformer, ContactShadows } from '@react-three/drei'
 import * as THREE from 'three'
 import {
   TopologyNode,
   TopologyLink,
   TOPOLOGY_NODES,
-  TOPOLOGY_LINKS,
   CameraPresetKey,
   CAMERA_PRESETS,
 } from './service-nodes-data'
@@ -66,7 +65,7 @@ function CameraRig({
     const controls = controlsRef.current
     if (!controls) return
 
-    // If user is actively dragging or dollying, yield control immediately
+    // If user is actively dragging, dollying, or rotating, yield control immediately
     if (controls.state !== -1) {
       isUserInteracting.current = true
       return
@@ -77,8 +76,8 @@ function CameraRig({
       const desiredPos = new THREE.Vector3(...targetPreset.position)
       const desiredTarget = new THREE.Vector3(...targetPreset.target)
 
-      camera.position.lerp(desiredPos, Math.min(delta * 3.8, 0.18))
-      controls.target.lerp(desiredTarget, Math.min(delta * 3.8, 0.18))
+      camera.position.lerp(desiredPos, Math.min(delta * 4.2, 0.2))
+      controls.target.lerp(desiredTarget, Math.min(delta * 4.2, 0.2))
       controls.update()
     }
   })
@@ -90,79 +89,120 @@ function CameraRig({
       enablePan={true}
       enableZoom={true}
       enableRotate={true}
-      minDistance={4}
+      enableDamping={true}
+      dampingFactor={0.07}
+      minDistance={10}
       maxDistance={24}
-      maxPolarAngle={Math.PI / 1.72}
-      minPolarAngle={Math.PI / 6.5}
+      minPolarAngle={Math.PI / 6}
+      maxPolarAngle={Math.PI / 2.35}
       target={CAMERA_PRESETS.orbit.target}
     />
   )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 3-Point Architectural Lighting Setup
+// Studio Lighting Setup (Environment IBL + Softboxes + Directional Key + Accent)
 // ─────────────────────────────────────────────────────────────────────────────
-function DynamicLightingRig({
+function StudioLightingRig({
   protectionEnabled = true,
   globalFreeze = false,
-  animatingRay = false,
+  simulationVerdict = 'idle',
 }: {
   protectionEnabled?: boolean
   globalFreeze?: boolean
-  animatingRay?: boolean
+  simulationVerdict?: 'idle' | 'blocked' | 'breached'
 }) {
-  const coreLightRef = useRef<THREE.PointLight>(null)
+  const accentLightRef = useRef<THREE.PointLight>(null)
+
+  const accentColor = globalFreeze
+    ? '#f59e0b'
+    : simulationVerdict === 'breached'
+      ? '#f43f5e'
+      : protectionEnabled
+        ? '#10b981'
+        : '#f43f5e'
 
   useFrame((_, delta) => {
-    if (coreLightRef.current) {
-      const targetIntensity = globalFreeze
-        ? 2.2
-        : animatingRay && protectionEnabled
-          ? 2.6
-          : protectionEnabled
-            ? 1.4
-            : 1.1
-
-      coreLightRef.current.intensity += (targetIntensity - coreLightRef.current.intensity) * delta * 4.0
-
-      const targetColor = globalFreeze
-        ? new THREE.Color('#F43F5E')
-        : protectionEnabled
-          ? new THREE.Color('#10B981')
-          : new THREE.Color('#F43F5E')
-
-      coreLightRef.current.color.lerp(targetColor, delta * 4.0)
+    if (accentLightRef.current) {
+      const targetColor = new THREE.Color(accentColor)
+      accentLightRef.current.color.lerp(targetColor, delta * 5.0)
+      const targetIntensity = globalFreeze ? 2.5 : protectionEnabled ? 1.8 : 2.2
+      accentLightRef.current.intensity += (targetIntensity - accentLightRef.current.intensity) * delta * 4.0
     }
   })
 
   return (
     <>
-      {/* 1. Cool Ambient Fill */}
-      <ambientLight intensity={0.55} color="#94A3B8" />
+      {/* ── Procedural Studio IBL with 4 Positioned Softbox Lightformers ── */}
+      <Environment resolution={256}>
+        {/* 1. Overhead cool-white main softbox */}
+        <Lightformer
+          form="rect"
+          intensity={2.4}
+          color="#e0f2fe"
+          position={[0, 12, 2]}
+          scale={[18, 10, 1]}
+          rotation={[Math.PI / 2, 0, 0]}
+        />
+        {/* 2. Left cyan rim-light panel */}
+        <Lightformer
+          form="rect"
+          intensity={2.2}
+          color="#38bdf8"
+          position={[-14, 6, 4]}
+          scale={[8, 8, 1]}
+        />
+        {/* 3. Right indigo/violet rim-light panel */}
+        <Lightformer
+          form="rect"
+          intensity={2.0}
+          color="#818cf8"
+          position={[14, 6, -2]}
+          scale={[8, 8, 1]}
+        />
+        {/* 4. Front subtle fill panel */}
+        <Lightformer
+          form="rect"
+          intensity={1.2}
+          color="#cbd5e1"
+          position={[0, 4, 14]}
+          scale={[14, 5, 1]}
+        />
+      </Environment>
 
-      {/* 2. Directional Key Light (Warm Titanium Specular) */}
+      {/* ── Hemisphere Fill (Prevents Undersides From Turning Black) ────── */}
+      <hemisphereLight args={['#c7d2fe', '#1e293b', 0.95]} />
+
+      {/* ── Key Directional Sunlight (Titanium Specular Highlights) ─────── */}
       <directionalLight
-        position={[6, 12, 8]}
-        intensity={1.2}
-        color="#F8FAFC"
+        position={[8, 16, 10]}
+        intensity={1.8}
+        color="#f8fafc"
         castShadow
+        shadow-mapSize={[2048, 2048]}
+        shadow-camera-left={-12}
+        shadow-camera-right={12}
+        shadow-camera-top={10}
+        shadow-camera-bottom={-10}
       />
 
-      {/* 3. Directional Rim Light (Cool Cyan Edge) */}
-      <directionalLight
-        position={[-8, 6, -6]}
-        intensity={0.7}
-        color="#38BDF8"
-      />
-
-      {/* Dynamic Core Point Light Inside Gateway Fortress Bridge */}
+      {/* ── Gateway Accent Point Light (Smooth State Color Shifting) ────── */}
       <pointLight
-        ref={coreLightRef}
-        position={[0.0, 0.45, 0.0]}
-        intensity={1.4}
-        color="#10B981"
-        distance={10}
+        ref={accentLightRef}
+        position={[0, 3.2, 0]}
+        intensity={1.8}
+        color={accentColor}
+        distance={14}
         decay={2}
+      />
+
+      {/* ── Grounding Contact Shadows On Deck ───────────────────────────── */}
+      <ContactShadows
+        position={[0, 0.02, 0]}
+        opacity={0.55}
+        scale={24}
+        blur={2.2}
+        far={6}
       />
     </>
   )
@@ -196,30 +236,44 @@ export default function Security3DScene({
 
   return (
     <Canvas
-      dpr={[1, 1.75]}
-      gl={{ antialias: true, powerPreference: 'high-performance' }}
-      camera={{ position: [0, 8.2, 13.4], fov: 34 }}
-      style={{ background: 'transparent', width: '100%', height: '100%' }}
+      shadows
+      dpr={[1, 2]}
+      gl={{
+        antialias: true,
+        toneMapping: THREE.ACESFilmicToneMapping,
+        toneMappingExposure: 1.25,
+        powerPreference: 'high-performance',
+      }}
+      camera={{ position: [0, 10.5, 13.8], fov: 34 }}
+      style={{ width: '100%', height: '100%' }}
       onPointerMissed={() => onSelectNode(null)}
     >
+      {/* Rich midnight navy-slate background (NOT pure black) */}
+      <color attach="background" args={['#0b1120']} />
+      {/* Subtle exponential depth fog that melts edges into viewport */}
+      <fog attach="fog" args={['#0b1120', 22, 42]} />
+
       {/* Dynamic Camera Rig with Presets & Free Drag Release */}
       <CameraRig
         activePreset={activeCameraPreset}
         cameraResetKey={cameraResetKey}
       />
 
-      {/* 3-Point Architectural Lighting Setup */}
-      <DynamicLightingRig
+      {/* Studio Lighting Rig with Procedural Environment Softboxes */}
+      <StudioLightingRig
         protectionEnabled={protectionEnabled}
         globalFreeze={globalFreeze}
-        animatingRay={animatingRay}
+        simulationVerdict={simulationVerdict}
       />
 
-      {/* ── Sovereign Vault Silicon Motherboard Deck (with Air-Gap Trench & 3D Silk-Screen Text) */}
+      {/* ── Base Deck, 3 Raised Zone Decks, Conduits, Pedestals & 3D Nameplates ─ */}
       <MotherboardDeck
         nodes={nodes}
         protectionEnabled={protectionEnabled}
         globalFreeze={globalFreeze}
+        activeScenario={activeScenario}
+        animatingRay={animatingRay}
+        simulationVerdict={simulationVerdict}
       />
 
       {/* ── 3.2s Synced 7-Scenario 3D Choreography FX Layer ───────────────── */}
@@ -232,7 +286,7 @@ export default function Security3DScene({
         globalFreeze={globalFreeze}
       />
 
-      {/* ── 7 Precision Hardware Modules (Unified Machined Titanium PBR) ──── */}
+      {/* ── 7 Precision Hardware Sculptures (Machined Titanium + Glass) ───── */}
       {nodes.map((node) => {
         const isBreached =
           simulationVerdict === 'breached' &&
@@ -258,13 +312,13 @@ export default function Security3DScene({
 
       {/* Scenario #5: Agent 3D Quarantine Wireframe Lock Cage */}
       <AgentQuarantineCage
-        position={[-5.6, -0.5, 0.0]}
+        position={[-5.8, 0.7, -0.6]}
         active={isRunawayQuarantine}
       />
 
       {/* Scenario #7: Subterranean Crimson DB Tamper Spike */}
       <DbTamperSpike
-        position={[4.8, -0.9, 2.2]}
+        position={[4.8, 0.24, 2.5]}
         active={isDbTamperActive}
       />
     </Canvas>

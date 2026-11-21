@@ -20,199 +20,288 @@ export interface SculptureProps {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 1. Sovereign Vault Silicon Motherboard & Center Air-Gap Trench (y = -1.2)
+// Conduit Tube Subcomponent: Creates an elevated frosted glass conduit
+// ─────────────────────────────────────────────────────────────────────────────
+function ElevatedConduitTube({
+  points,
+  coreColor = '#38bdf8',
+  archY = 0.35,
+}: {
+  points: [[number, number, number], [number, number, number]]
+  coreColor?: string
+  archY?: number
+}) {
+  const curve = useMemo(() => {
+    const p1 = new THREE.Vector3(...points[0])
+    const p2 = new THREE.Vector3(...points[1])
+    const mid = new THREE.Vector3()
+      .addVectors(p1, p2)
+      .multiplyScalar(0.5)
+      .add(new THREE.Vector3(0, archY, 0))
+    return new THREE.QuadraticBezierCurve3(p1, mid, p2)
+  }, [points, archY])
+
+  const tubeGeom = useMemo(() => new THREE.TubeGeometry(curve, 32, 0.045, 8, false), [curve])
+  const coreGeom = useMemo(() => new THREE.TubeGeometry(curve, 32, 0.016, 6, false), [curve])
+
+  return (
+    <group>
+      {/* Outer Frosted Glass Conduit */}
+      <mesh geometry={tubeGeom}>
+        <meshPhysicalMaterial
+          color="#334155"
+          roughness={0.15}
+          transmission={0.65}
+          thickness={0.2}
+          transparent
+          opacity={0.65}
+          metalness={0.1}
+        />
+      </mesh>
+      {/* Glowing Inner Optical Core */}
+      <mesh geometry={coreGeom}>
+        <meshBasicMaterial color={coreColor} transparent opacity={0.75} />
+      </mesh>
+    </group>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. Studio-Lit Base Deck, 3 Raised Zone Decks, Elevated Conduits & Nameplates
 // ─────────────────────────────────────────────────────────────────────────────
 export function MotherboardDeck({
   nodes,
   protectionEnabled = true,
   globalFreeze = false,
+  activeScenario = null,
+  animatingRay = false,
+  simulationVerdict = 'idle',
 }: {
   nodes: TopologyNode[]
   protectionEnabled?: boolean
   globalFreeze?: boolean
+  activeScenario?: any
+  animatingRay?: boolean
+  simulationVerdict?: 'idle' | 'blocked' | 'breached'
 }) {
+  const dmzBorderColor = globalFreeze
+    ? '#f59e0b'
+    : simulationVerdict === 'breached'
+      ? '#f43f5e'
+      : protectionEnabled
+        ? '#10b981'
+        : '#f43f5e'
+
   return (
-    <group position={[0, -1.2, 0]}>
-      {/* ── Left Motherboard Half (Untrusted Zone) ────────────────────────── */}
-      <mesh position={[-5.3, 0, 0]} receiveShadow>
-        <boxGeometry args={[6.2, 0.45, 9.6]} />
+    <group position={[0, 0, 0]}>
+      {/* ── Main Floating 3D Base Deck (17.5 × 9.2 × 0.36) ────────────────── */}
+      <mesh position={[0, -0.18, 0]} receiveShadow castShadow>
+        <boxGeometry args={[17.5, 0.36, 9.2]} />
         <meshStandardMaterial
-          color="#0E131F"
-          roughness={0.28}
-          metalness={0.78}
+          color="#1e293b"
+          roughness={0.58}
+          metalness={0.32}
         />
       </mesh>
 
-      {/* ── Right Motherboard Half (Core Vault Zone) ──────────────────────── */}
-      <mesh position={[5.3, 0, 0]} receiveShadow>
-        <boxGeometry args={[6.2, 0.45, 9.6]} />
+      {/* Brushed-Aluminum Perimeter Trim Frame */}
+      <mesh position={[0, -0.18, 0]}>
+        <boxGeometry args={[17.65, 0.32, 9.35]} />
         <meshStandardMaterial
-          color="#0E131F"
-          roughness={0.28}
-          metalness={0.78}
+          color="#475569"
+          metalness={0.7}
+          roughness={0.25}
+          wireframe
         />
       </mesh>
 
-      {/* ── Recessed Air-Gap Trench Floor (Zero-Trust Chasm) ─────────────── */}
-      <mesh position={[0, -0.16, 0]}>
-        <boxGeometry args={[4.4, 0.16, 9.6]} />
-        <meshStandardMaterial
-          color="#05070C"
-          roughness={0.65}
-          metalness={0.3}
-        />
-      </mesh>
+      {/* Architectural Blueprint Grid Lines on top of Base Deck */}
+      <gridHelper
+        args={[17.2, 28, '#475569', '#334155']}
+        position={[0, 0.005, 0]}
+      />
 
-      {/* Trench Warning Hazard Strips (Physical Edge Borders) */}
-      <mesh position={[-2.2, 0.23, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[0.08, 9.6]} />
-        <meshBasicMaterial color="#38BDF8" transparent opacity={0.35} />
-      </mesh>
-      <mesh position={[2.2, 0.23, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[0.08, 9.6]} />
-        <meshBasicMaterial color="#10B981" transparent opacity={0.35} />
-      </mesh>
+      {/* ── 3 Raised Zone Decks (y = 0.04, height = 0.08) ─────────────────── */}
 
-      {/* ── Raised PCB Fiber-Optic Bus Channels (45°-Chamfered Metal Tracks) ─ */}
-      {/* Track 1: Agent [-5.6, 0] to Gateway [-1.2, 0] */}
-      <mesh position={[-3.4, 0.235, 0]}>
-        <boxGeometry args={[4.4, 0.04, 0.28]} />
-        <meshStandardMaterial color="#1E293B" roughness={0.3} metalness={0.8} />
-      </mesh>
-      {/* Recessed Glowing Optic Core 1 */}
-      <mesh position={[-3.4, 0.258, 0]}>
-        <boxGeometry args={[4.4, 0.01, 0.08]} />
-        <meshBasicMaterial color="#06B6D4" transparent opacity={0.65} />
-      </mesh>
+      {/* Zone 1: Untrusted Agent Edge (x = -5.6, width = 5.4) */}
+      <group position={[-5.6, 0.04, 0]}>
+        <mesh receiveShadow>
+          <boxGeometry args={[5.4, 0.08, 8.6]} />
+          <meshStandardMaterial color="#1f2c42" roughness={0.45} metalness={0.4} />
+        </mesh>
+        {/* Cyan Front Edge Trim */}
+        <mesh position={[0, 0.045, 4.28]}>
+          <boxGeometry args={[5.4, 0.02, 0.06]} />
+          <meshBasicMaterial color="#0ea5e9" />
+        </mesh>
+        {/* Back Edge Zone Header Label */}
+        <Text
+          position={[0, 0.05, -4.0]}
+          rotation={[-Math.PI / 2, 0, 0]}
+          fontSize={0.24}
+          color="#38bdf8"
+          letterSpacing={0.12}
+          anchorX="center"
+          anchorY="middle"
+        >
+          01 · UNTRUSTED AGENT EDGE
+        </Text>
+      </group>
 
-      {/* Track 2: Gateway [1.2, 0] to Bank Gate [4.2, -2.2] */}
-      <mesh position={[2.7, 0.235, -1.1]} rotation={[0, 0.63, 0]}>
-        <boxGeometry args={[3.6, 0.04, 0.28]} />
-        <meshStandardMaterial color="#1E293B" roughness={0.3} metalness={0.8} />
-      </mesh>
-      <mesh position={[2.7, 0.258, -1.1]} rotation={[0, 0.63, 0]}>
-        <boxGeometry args={[3.6, 0.01, 0.08]} />
-        <meshBasicMaterial color="#34D399" transparent opacity={0.6} />
-      </mesh>
+      {/* Zone 2: Zero-Trust DMZ Gate (x = 0.0, width = 4.6) */}
+      <group position={[0.0, 0.04, 0]}>
+        <mesh receiveShadow>
+          <boxGeometry args={[4.6, 0.08, 8.6]} />
+          <meshStandardMaterial color="#1d2e3a" roughness={0.45} metalness={0.4} />
+        </mesh>
+        {/* Dynamic Edge Trim (Emerald when Armed, Crimson when Bypass/Breached, Amber on Freeze) */}
+        <mesh position={[0, 0.045, 4.28]}>
+          <boxGeometry args={[4.6, 0.02, 0.06]} />
+          <meshBasicMaterial color={dmzBorderColor} />
+        </mesh>
+        {/* Back Edge Zone Header Label */}
+        <Text
+          position={[0, 0.05, -4.0]}
+          rotation={[-Math.PI / 2, 0, 0]}
+          fontSize={0.24}
+          color={dmzBorderColor}
+          letterSpacing={0.12}
+          anchorX="center"
+          anchorY="middle"
+        >
+          02 · ZERO-TRUST DMZ GATE
+        </Text>
+      </group>
 
-      {/* Track 3: Bank Gate [4.2, -2.2] to Ledger Adapter [6.0, 0] */}
-      <mesh position={[5.1, 0.235, -1.1]} rotation={[0, -0.68, 0]}>
-        <boxGeometry args={[3.0, 0.04, 0.28]} />
-        <meshStandardMaterial color="#1E293B" roughness={0.3} metalness={0.8} />
-      </mesh>
-      <mesh position={[5.1, 0.258, -1.1]} rotation={[0, -0.68, 0]}>
-        <boxGeometry args={[3.0, 0.01, 0.08]} />
-        <meshBasicMaterial color="#3B82F6" transparent opacity={0.6} />
-      </mesh>
+      {/* Zone 3: Sovereign Bank Vault (x = +5.6, width = 5.6) */}
+      <group position={[5.6, 0.04, 0]}>
+        <mesh receiveShadow>
+          <boxGeometry args={[5.6, 0.08, 8.6]} />
+          <meshStandardMaterial color="#232944" roughness={0.45} metalness={0.4} />
+        </mesh>
+        {/* Indigo/Violet Front Edge Trim */}
+        <mesh position={[0, 0.045, 4.28]}>
+          <boxGeometry args={[5.6, 0.02, 0.06]} />
+          <meshBasicMaterial color="#6366f1" />
+        </mesh>
+        {/* Back Edge Zone Header Label */}
+        <Text
+          position={[0, 0.05, -4.0]}
+          rotation={[-Math.PI / 2, 0, 0]}
+          fontSize={0.24}
+          color="#818cf8"
+          letterSpacing={0.12}
+          anchorX="center"
+          anchorY="middle"
+        >
+          03 · SOVEREIGN BANK VAULT
+        </Text>
+      </group>
 
-      {/* Track 4: Ledger Adapter [6.0, 0] to TigerBeetle [4.8, 2.2] */}
-      <mesh position={[5.4, 0.235, 1.1]} rotation={[0, 0.52, 0]}>
-        <boxGeometry args={[2.8, 0.04, 0.28]} />
-        <meshStandardMaterial color="#1E293B" roughness={0.3} metalness={0.8} />
-      </mesh>
-      <mesh position={[5.4, 0.258, 1.1]} rotation={[0, 0.52, 0]}>
-        <boxGeometry args={[2.8, 0.01, 0.08]} />
-        <meshBasicMaterial color="#8B5CF6" transparent opacity={0.65} />
-      </mesh>
+      {/* ── Elevated Glowing Glass Conduits (Catmull-Rom Splines 0.35 above deck) ─ */}
+      {/* 1. Inbound Untrusted Edge: Agent [-5.8, -0.6] -> Gateway [0, -0.4] */}
+      <ElevatedConduitTube
+        points={[[-5.8, 0.24, -0.6], [0, 0.24, -0.4]]}
+        coreColor="#06b6d4"
+        archY={0.32}
+      />
+      {/* 2. Protected Banking Rail: Gateway [0, -0.4] -> Bank Gate [4.6, -2.0] */}
+      <ElevatedConduitTube
+        points={[[0, 0.24, -0.4], [4.6, 0.24, -2.0]]}
+        coreColor="#34d399"
+        archY={0.35}
+      />
+      {/* 3. Bank Gate [4.6, -2.0] -> Ledger Adapter [6.5, 0.3] */}
+      <ElevatedConduitTube
+        points={[[4.6, 0.24, -2.0], [6.5, 0.24, 0.3]]}
+        coreColor="#3b82f6"
+        archY={0.3}
+      />
+      {/* 4. Ledger Adapter [6.5, 0.3] -> TigerBeetle [4.8, 2.5] */}
+      <ElevatedConduitTube
+        points={[[6.5, 0.24, 0.3], [4.8, 0.24, 2.5]]}
+        coreColor="#8b5cf6"
+        archY={0.32}
+      />
+      {/* 5. Cryptographic Notary Bus: Gateway [0, -0.4] -> Witness [0, 2.8] */}
+      <ElevatedConduitTube
+        points={[[0, 0.24, -0.4], [0, 0.24, 2.8]]}
+        coreColor="#f59e0b"
+        archY={0.35}
+      />
+      {/* 6. Merkle Audit Verification Bus: TigerBeetle [4.8, 2.5] -> Witness [0, 2.8] */}
+      <ElevatedConduitTube
+        points={[[4.8, 0.24, 2.5], [0, 0.24, 2.8]]}
+        coreColor="#f59e0b"
+        archY={0.36}
+      />
+      {/* 7. Live SOC Telemetry Bus: Gateway [0, -0.4] -> Cockpit [-5.2, 2.7] */}
+      <ElevatedConduitTube
+        points={[[0, 0.24, -0.4], [-5.2, 0.24, 2.7]]}
+        coreColor="#ec4899"
+        archY={0.34}
+      />
 
-      {/* Track 5: Gateway [0, 0] to Witness [0.8, 3.4] */}
-      <mesh position={[0.4, 0.235, 1.7]} rotation={[0, -0.23, 0]}>
-        <boxGeometry args={[0.28, 0.04, 3.5]} />
-        <meshStandardMaterial color="#1E293B" roughness={0.3} metalness={0.8} />
-      </mesh>
-      <mesh position={[0.4, 0.258, 1.7]} rotation={[0, -0.23, 0]}>
-        <boxGeometry args={[0.08, 0.01, 3.5]} />
-        <meshBasicMaterial color="#F59E0B" transparent opacity={0.6} />
-      </mesh>
-
-      {/* Track 6: Witness [0.8, 3.4] to TigerBeetle [4.8, 2.2] (Merkle Scan Line) */}
-      <mesh position={[2.8, 0.235, 2.8]} rotation={[0, 0.29, 0]}>
-        <boxGeometry args={[4.2, 0.03, 0.2]} />
-        <meshStandardMaterial color="#1E293B" roughness={0.3} metalness={0.8} />
-      </mesh>
-      <mesh position={[2.8, 0.258, 2.8]} rotation={[0, 0.29, 0]}>
-        <boxGeometry args={[4.2, 0.01, 0.06]} />
-        <meshBasicMaterial color="#F59E0B" transparent opacity={0.5} />
-      </mesh>
-
-      {/* ── PCB Silk-Screen Monospace 3D Text (Zero Overlapping Pills!) ──── */}
-      {/* Zone Header Labels at Rear of Motherboard */}
-      <Text
-        position={[-5.3, 0.24, -4.2]}
-        rotation={[-Math.PI / 2, 0, 0]}
-        fontSize={0.24}
-        color="#64748B"
-        letterSpacing={0.12}
-      >
-        01 · UNTRUSTED EDGE FOUNDRY
-      </Text>
-      <Text
-        position={[0.0, 0.24, -4.2]}
-        rotation={[-Math.PI / 2, 0, 0]}
-        fontSize={0.24}
-        color={protectionEnabled ? '#10B981' : '#F43F5E'}
-        letterSpacing={0.12}
-      >
-        02 · ZERO-TRUST DMZ BRIDGE
-      </Text>
-      <Text
-        position={[5.3, 0.24, -4.2]}
-        rotation={[-Math.PI / 2, 0, 0]}
-        fontSize={0.24}
-        color="#38BDF8"
-        letterSpacing={0.12}
-      >
-        03 · CORE BANKING VAULT CITADEL
-      </Text>
-
-      {/* Individual Hardware Module Silk-Screen Labels Printed Flat on Deck */}
+      {/* ── Octagonal Pedestals & Angled 3D Nameplate Plaques Under Every Sculpture ── */}
       {nodes.map((n) => {
-        const offsetZ = n.id === 'bank-gate' ? 1.05 : n.id === 'tigerbeetle' ? -1.05 : 0.95
-        return (
-          <group key={`silkscreen-${n.id}`} position={[n.position[0], 0.24, n.position[2] + offsetZ]}>
-            <Text
-              rotation={[-Math.PI / 2, 0, 0]}
-              fontSize={0.19}
-              color={n.color}
-              letterSpacing={0.08}
-              anchorX="center"
-              anchorY="middle"
-            >
-              {n.silkScreenLabel}
-            </Text>
-            {n.port && (
-              <Text
-                position={[0, 0, 0.22]}
-                rotation={[-Math.PI / 2, 0, 0]}
-                fontSize={0.12}
-                color="#64748B"
-                letterSpacing={0.05}
-                anchorX="center"
-                anchorY="middle"
-              >
-                PORT :{n.port}
-              </Text>
-            )}
-          </group>
-        )
-      })}
+        const isGw = n.id === 'gateway'
+        const collarColor = isGw ? dmzBorderColor : n.color
 
-      {/* Beveled Titanium Mounting Pads Beneath Every Hardware Sculpture */}
-      {nodes.map((node) => {
-        const isGw = node.id === 'gateway'
         return (
-          <group key={`plinth-pad-${node.id}`} position={[node.position[0], 0.23, node.position[2]]}>
-            {/* Dark Machined Titanium Pad Disc */}
-            <mesh rotation={[-Math.PI / 2, 0, 0]}>
-              <ringGeometry args={[0.72, 0.88, 36]} />
+          <group key={`pedestal-group-${n.id}`} position={[n.position[0], 0, n.position[2]]}>
+            {/* Raised Bevelled Octagonal Pedestal Base */}
+            <mesh position={[0, 0.12, 0]} receiveShadow castShadow>
+              <cylinderGeometry args={[0.85, 0.92, 0.22, 8]} />
               <meshStandardMaterial
-                color={isGw ? (protectionEnabled ? '#10B981' : '#F43F5E') : node.color}
-                emissive={isGw ? (protectionEnabled ? '#10B981' : '#F43F5E') : node.color}
-                emissiveIntensity={0.35}
-                roughness={0.2}
+                color="#2b3852"
+                roughness={0.25}
                 metalness={0.8}
               />
             </mesh>
+
+            {/* Glowing Colored LED Collar Ring */}
+            <mesh position={[0, 0.235, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+              <ringGeometry args={[0.76, 0.85, 32]} />
+              <meshBasicMaterial color={collarColor} transparent opacity={0.85} />
+            </mesh>
+
+            {/* ── Angled 3D Nameplate Plaque (Directly in front: z + 1.25, y = 0.26) ── */}
+            <group position={[0, 0.26, 1.25]} rotation={[-Math.PI / 3.2, 0, 0]}>
+              {/* Thin Backing Slab with Colored Border */}
+              <mesh>
+                <boxGeometry args={[2.2, 0.62, 0.04]} />
+                <meshStandardMaterial color="#0f172a" roughness={0.3} metalness={0.7} />
+              </mesh>
+              {/* Plaque Perimeter Edge */}
+              <mesh>
+                <boxGeometry args={[2.24, 0.66, 0.02]} />
+                <meshStandardMaterial color={collarColor} roughness={0.2} metalness={0.8} wireframe />
+              </mesh>
+
+              {/* Line 1: Bold Node Name */}
+              <Text
+                position={[0, 0.10, 0.028]}
+                fontSize={0.22}
+                color="#f8fafc"
+                letterSpacing={0.04}
+                anchorX="center"
+                anchorY="middle"
+              >
+                {n.name}
+              </Text>
+
+              {/* Line 2: Port or Subtitle */}
+              <Text
+                position={[0, -0.13, 0.028]}
+                fontSize={0.15}
+                color="#94a3b8"
+                letterSpacing={0.02}
+                anchorX="center"
+                anchorY="middle"
+              >
+                {n.port ? `:${n.port} · ${n.role}` : n.subtitle}
+              </Text>
+            </group>
           </group>
         )
       })}
@@ -221,7 +310,7 @@ export function MotherboardDeck({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 2. Hardware #1: AI Agent Foundry (Octagonal Titanium Monolith + Neural Diamond)
+// 2. Hardware #1: AI Agent Runtime (Left-Back: [-5.8, 0.24, -0.6])
 // ─────────────────────────────────────────────────────────────────────────────
 export function OctahedronAgentSculpture({
   node,
@@ -231,20 +320,27 @@ export function OctahedronAgentSculpture({
   isQuarantined = false,
 }: SculptureProps) {
   const coreRef = useRef<THREE.Mesh>(null)
-  const ringRef = useRef<THREE.Mesh>(null)
+  const gyro1Ref = useRef<THREE.Mesh>(null)
+  const gyro2Ref = useRef<THREE.Mesh>(null)
   const [hovered, setHovered] = useState(false)
 
   useFrame((_, delta) => {
+    const mult = isQuarantined ? 0.2 : hovered ? 2.0 : 1.0
     if (coreRef.current) {
-      coreRef.current.rotation.y += delta * (isQuarantined ? 2.5 : 0.6)
-      coreRef.current.rotation.z += delta * (isQuarantined ? 1.8 : 0.3)
+      coreRef.current.rotation.y += delta * 0.7 * mult
+      coreRef.current.rotation.z += delta * 0.35 * mult
     }
-    if (ringRef.current) {
-      ringRef.current.rotation.z -= delta * 0.8
+    if (gyro1Ref.current) {
+      gyro1Ref.current.rotation.x += delta * 1.2 * mult
+      gyro1Ref.current.rotation.y += delta * 0.8 * mult
+    }
+    if (gyro2Ref.current) {
+      gyro2Ref.current.rotation.y -= delta * 1.0 * mult
+      gyro2Ref.current.rotation.z += delta * 0.6 * mult
     }
   })
 
-  const accentColor = isQuarantined ? '#F43F5E' : node.color
+  const coreColor = isQuarantined ? '#f43f5e' : '#06b6d4'
 
   return (
     <group
@@ -265,41 +361,53 @@ export function OctahedronAgentSculpture({
         document.body.style.cursor = 'auto'
       }}
     >
-      {/* Octagonal Brushed Titanium Monolith Base */}
-      <mesh position={[0, -0.15, 0]}>
-        <cylinderGeometry args={[0.72, 0.78, 0.22, 8]} />
-        <meshStandardMaterial color="#141B29" roughness={0.28} metalness={0.8} />
+      {/* Brushed-Titanium Octagonal CPU Base Plinth */}
+      <mesh position={[0, 0.12, 0]} castShadow>
+        <cylinderGeometry args={[0.62, 0.72, 0.22, 8]} />
+        <meshStandardMaterial color="#334155" roughness={0.25} metalness={0.85} />
       </mesh>
 
-      {/* Four Vertical Titanium Cage Struts */}
-      {[-0.42, 0.42].map((x) =>
-        [-0.42, 0.42].map((z) => (
-          <mesh key={`strut-${x}-${z}`} position={[x, 0.3, z]}>
-            <boxGeometry args={[0.06, 0.7, 0.06]} />
-            <meshStandardMaterial color="#334155" roughness={0.3} metalness={0.85} />
-          </mesh>
-        ))
-      )}
+      {/* Titanium Micro-Heatsink Fins */}
+      {[-0.32, -0.16, 0, 0.16, 0.32].map((x, i) => (
+        <mesh key={`fin-${i}`} position={[x, 0.28, 0]}>
+          <boxGeometry args={[0.04, 0.14, 0.68]} />
+          <meshStandardMaterial color="#475569" roughness={0.2} metalness={0.9} />
+        </mesh>
+      ))}
 
-      {/* Horizontal Rotating Telemetry Ring */}
-      <mesh ref={ringRef} position={[0, 0.3, 0]} rotation={[Math.PI / 2, 0, 0]}>
-        <torusGeometry args={[0.62, 0.016, 16, 36]} />
+      {/* Levitating Glowing Cyan Crystalline Neural Core */}
+      <mesh ref={coreRef} position={[0, 0.75, 0]}>
+        <octahedronGeometry args={[0.34, 0]} />
         <meshStandardMaterial
-          color={accentColor}
-          emissive={accentColor}
-          emissiveIntensity={isSelected ? 1.0 : hovered ? 0.8 : 0.35}
+          color={coreColor}
+          emissive={coreColor}
+          emissiveIntensity={isQuarantined ? 1.8 : isSelected ? 1.4 : hovered ? 1.2 : 0.8}
+          roughness={0.15}
+          metalness={0.9}
         />
       </mesh>
 
-      {/* Suspended Faceted Neural Diamond Core */}
-      <mesh ref={coreRef} position={[0, 0.3, 0]}>
-        <octahedronGeometry args={[0.38, 0]} />
+      {/* Tilted Rotating Precision Gyro-Ring 1 */}
+      <mesh ref={gyro1Ref} position={[0, 0.75, 0]}>
+        <torusGeometry args={[0.54, 0.018, 16, 36]} />
         <meshStandardMaterial
-          color={accentColor}
-          emissive={accentColor}
-          emissiveIntensity={isQuarantined ? 1.6 : isSelected ? 1.0 : hovered ? 0.8 : 0.45}
-          roughness={0.15}
-          metalness={0.85}
+          color="#38bdf8"
+          emissive="#38bdf8"
+          emissiveIntensity={isSelected ? 1.0 : 0.5}
+          roughness={0.2}
+          metalness={0.8}
+        />
+      </mesh>
+
+      {/* Tilted Rotating Precision Gyro-Ring 2 */}
+      <mesh ref={gyro2Ref} position={[0, 0.75, 0]} rotation={[Math.PI / 3, 0, 0]}>
+        <torusGeometry args={[0.62, 0.016, 16, 36]} />
+        <meshStandardMaterial
+          color="#0ea5e9"
+          emissive="#0ea5e9"
+          emissiveIntensity={isSelected ? 0.9 : 0.4}
+          roughness={0.2}
+          metalness={0.8}
         />
       </mesh>
     </group>
@@ -307,7 +415,7 @@ export function OctahedronAgentSculpture({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 3. Hardware #2: AgentShield Gateway :8080 — Fortress Bridge across Air-Gap
+// 3. Hardware #2: AgentShield Gateway :8080 (Hero Centerpiece: [0, 0.24, -0.4])
 // ─────────────────────────────────────────────────────────────────────────────
 export function VaultGatewaySculpture({
   node,
@@ -317,38 +425,50 @@ export function VaultGatewaySculpture({
   protectionEnabled = true,
   globalFreeze = false,
   animatingRay = false,
+  simulationVerdict = 'idle',
 }: SculptureProps) {
   const leftShutterRef = useRef<THREE.Mesh>(null)
   const rightShutterRef = useRef<THREE.Mesh>(null)
-  const hexCurtainRef = useRef<THREE.Mesh>(null)
+  const curtainRef = useRef<THREE.Mesh>(null)
   const scanlineRef = useRef<THREE.Mesh>(null)
+  const freezeBar1Ref = useRef<THREE.Mesh>(null)
+  const freezeBar2Ref = useRef<THREE.Mesh>(null)
   const [hovered, setHovered] = useState(false)
 
   useFrame((_, delta) => {
-    // Mechanical Sliding Blast Shutters (Armed = closed together, Bypass = retracted into pylons)
-    const targetLeftX = protectionEnabled ? -0.22 : -0.72
-    const targetRightX = protectionEnabled ? 0.22 : 0.72
+    // Mechanical Sliding Blast Shutters (Armed = closed together; Bypass = retracted into pylons)
+    const targetLeftX = protectionEnabled ? -0.24 : -0.85
+    const targetRightX = protectionEnabled ? 0.24 : 0.85
 
     if (leftShutterRef.current) {
-      leftShutterRef.current.position.x += (targetLeftX - leftShutterRef.current.position.x) * delta * 6.0
+      leftShutterRef.current.position.x += (targetLeftX - leftShutterRef.current.position.x) * delta * 7.0
     }
     if (rightShutterRef.current) {
-      rightShutterRef.current.position.x += (targetRightX - rightShutterRef.current.position.x) * delta * 6.0
+      rightShutterRef.current.position.x += (targetRightX - rightShutterRef.current.position.x) * delta * 7.0
     }
 
-    // Optical Forcefield Curtain (drops into floor slot when bypass)
-    if (hexCurtainRef.current) {
-      const targetCurtainY = protectionEnabled ? 0.45 : -0.4
-      hexCurtainRef.current.position.y += (targetCurtainY - hexCurtainRef.current.position.y) * delta * 6.0
+    // Holographic Energy Shield Curtain (collapses when bypass)
+    if (curtainRef.current) {
+      const targetScaleY = protectionEnabled ? 1.0 : 0.05
+      const targetOpacity = protectionEnabled ? (animatingRay ? 0.55 : 0.38) : 0.04
+      curtainRef.current.scale.y += (targetScaleY - curtainRef.current.scale.y) * delta * 7.0
+      const mat = curtainRef.current.material as THREE.MeshStandardMaterial
+      mat.opacity += (targetOpacity - mat.opacity) * delta * 6.0
     }
 
     // Vertical Laser Scanline Sweep
     if (scanlineRef.current && protectionEnabled) {
-      scanlineRef.current.position.y = 0.45 + Math.sin(Date.now() * 0.006) * 0.35
+      scanlineRef.current.position.y = 1.0 + Math.sin(Date.now() * 0.007) * 0.5
     }
   })
 
-  const stateColor = globalFreeze ? '#F43F5E' : protectionEnabled ? '#10B981' : '#F43F5E'
+  const archColor = globalFreeze
+    ? '#f59e0b'
+    : simulationVerdict === 'breached'
+      ? '#f43f5e'
+      : protectionEnabled
+        ? '#10b981'
+        : '#f43f5e'
 
   return (
     <group
@@ -369,76 +489,96 @@ export function VaultGatewaySculpture({
         document.body.style.cursor = 'auto'
       }}
     >
-      {/* ── Bridge Deck Spanning the Center Trench ────────────────────────── */}
-      <mesh position={[0, -0.12, 0]}>
-        <boxGeometry args={[2.4, 0.16, 1.2]} />
-        <meshStandardMaterial color="#141B29" roughness={0.25} metalness={0.8} />
+      {/* ── Twin-Pillar Reinforced Titanium Fortress Archway (2.6 units tall) ─ */}
+      {/* West Armored Column */}
+      <mesh position={[-0.95, 1.1, 0]} castShadow>
+        <boxGeometry args={[0.34, 2.2, 0.95]} />
+        <meshStandardMaterial color="#334155" roughness={0.2} metalness={0.88} />
+      </mesh>
+      {/* West Vertical Status LED Strip */}
+      <mesh position={[-0.95, 1.1, 0.5]}>
+        <boxGeometry args={[0.12, 1.8, 0.03]} />
+        <meshBasicMaterial color={archColor} />
       </mesh>
 
-      {/* ── Twin Dark-Titanium Vertical Gatehouse Pylons ──────────────────── */}
-      {/* West Pylon (Facing Untrusted Edge) */}
-      <mesh position={[-0.85, 0.45, 0]}>
-        <boxGeometry args={[0.26, 1.05, 0.95]} />
-        <meshStandardMaterial color="#0B101B" roughness={0.2} metalness={0.85} />
+      {/* East Armored Column */}
+      <mesh position={[0.95, 1.1, 0]} castShadow>
+        <boxGeometry args={[0.34, 2.2, 0.95]} />
+        <meshStandardMaterial color="#334155" roughness={0.2} metalness={0.88} />
       </mesh>
-      {/* Status LED Bar on West Pylon */}
-      <mesh position={[-0.85, 0.85, 0.48]}>
-        <boxGeometry args={[0.18, 0.04, 0.02]} />
-        <meshBasicMaterial color={stateColor} />
-      </mesh>
-
-      {/* East Pylon (Facing Core Vault Rail) */}
-      <mesh position={[0.85, 0.45, 0]}>
-        <boxGeometry args={[0.26, 1.05, 0.95]} />
-        <meshStandardMaterial color="#0B101B" roughness={0.2} metalness={0.85} />
-      </mesh>
-      {/* Status LED Bar on East Pylon */}
-      <mesh position={[0.85, 0.85, 0.48]}>
-        <boxGeometry args={[0.18, 0.04, 0.02]} />
-        <meshBasicMaterial color={stateColor} />
+      {/* East Vertical Status LED Strip */}
+      <mesh position={[0.95, 1.1, 0.5]}>
+        <boxGeometry args={[0.12, 1.8, 0.03]} />
+        <meshBasicMaterial color={archColor} />
       </mesh>
 
-      {/* Top Lintel Archway linking Pylons */}
-      <mesh position={[0, 0.98, 0]}>
-        <boxGeometry args={[1.96, 0.12, 0.95]} />
-        <meshStandardMaterial color="#1E293B" roughness={0.25} metalness={0.8} />
+      {/* Heavy Top Lintel Bridge Connecting Columns */}
+      <mesh position={[0, 2.25, 0]} castShadow>
+        <boxGeometry args={[2.3, 0.28, 0.98]} />
+        <meshStandardMaterial color="#1e293b" roughness={0.25} metalness={0.82} />
       </mesh>
 
-      {/* ── Mechanical Sliding Titanium Blast Shutters (Physical Animation) ─ */}
-      <mesh ref={leftShutterRef} position={[-0.22, 0.42, 0]}>
-        <boxGeometry args={[0.42, 0.85, 0.14]} />
-        <meshStandardMaterial color="#1E293B" roughness={0.3} metalness={0.75} />
+      {/* ── Mechanical Twin Blast Shutters (Slide open on Bypass) ─────────── */}
+      <mesh ref={leftShutterRef} position={[-0.24, 1.05, 0]} castShadow>
+        <boxGeometry args={[0.46, 1.9, 0.16]} />
+        <meshStandardMaterial color="#475569" roughness={0.3} metalness={0.8} />
       </mesh>
-      <mesh ref={rightShutterRef} position={[0.22, 0.42, 0]}>
-        <boxGeometry args={[0.42, 0.85, 0.14]} />
-        <meshStandardMaterial color="#1E293B" roughness={0.3} metalness={0.75} />
+      <mesh ref={rightShutterRef} position={[0.24, 1.05, 0]} castShadow>
+        <boxGeometry args={[0.46, 1.9, 0.16]} />
+        <meshStandardMaterial color="#475569" roughness={0.3} metalness={0.8} />
       </mesh>
 
-      {/* ── Razor-Thin Hex Optical Forcefield Curtain (Between Pylons) ───── */}
-      <mesh ref={hexCurtainRef} position={[0, 0.45, 0]} rotation={[0, Math.PI / 2, 0]}>
-        <planeGeometry args={[0.88, 0.82]} />
+      {/* ── Translucent Glowing Holographic Energy Shield Curtain ─────────── */}
+      <mesh ref={curtainRef} position={[0, 1.05, 0]} rotation={[0, Math.PI / 2, 0]}>
+        <planeGeometry args={[0.88, 1.85]} />
         <meshStandardMaterial
-          color={stateColor}
-          emissive={stateColor}
-          emissiveIntensity={animatingRay && protectionEnabled ? 1.6 : protectionEnabled ? 0.6 : 0.1}
+          color={archColor}
+          emissive={archColor}
+          emissiveIntensity={protectionEnabled ? 1.0 : 0.1}
           transparent
-          opacity={protectionEnabled ? 0.38 : 0.06}
+          opacity={protectionEnabled ? 0.38 : 0.04}
           side={THREE.DoubleSide}
           wireframe={!protectionEnabled}
         />
       </mesh>
 
-      {/* Animated Vertical Laser Scanline */}
-      <mesh ref={scanlineRef} position={[0, 0.45, 0]}>
-        <boxGeometry args={[1.4, 0.02, 0.04]} />
-        <meshBasicMaterial color="#34D399" transparent opacity={protectionEnabled ? 0.85 : 0} />
+      {/* Vertical Animated Laser Scanline */}
+      <mesh ref={scanlineRef} position={[0, 1.0, 0]}>
+        <boxGeometry args={[1.52, 0.024, 0.06]} />
+        <meshBasicMaterial color="#34d399" transparent opacity={protectionEnabled ? 0.9 : 0} />
       </mesh>
+
+      {/* ── Emergency Global Freeze Heavy Amber Containment Lock Bars ──────── */}
+      {globalFreeze && (
+        <group position={[0, 1.05, 0.18]}>
+          <mesh ref={freezeBar1Ref} rotation={[0, 0, Math.PI / 4]}>
+            <boxGeometry args={[2.0, 0.12, 0.08]} />
+            <meshStandardMaterial
+              color="#f59e0b"
+              emissive="#f59e0b"
+              emissiveIntensity={1.2}
+              roughness={0.2}
+              metalness={0.8}
+            />
+          </mesh>
+          <mesh ref={freezeBar2Ref} rotation={[0, 0, -Math.PI / 4]}>
+            <boxGeometry args={[2.0, 0.12, 0.08]} />
+            <meshStandardMaterial
+              color="#f59e0b"
+              emissive="#f59e0b"
+              emissiveIntensity={1.2}
+              roughness={0.2}
+              metalness={0.8}
+            />
+          </mesh>
+        </group>
+      )}
     </group>
   )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 4. Hardware #3: Bank Gate :4000 (Cryptographic Airlock U-Arch)
+// 4. Hardware #3: Bank Gate :4000 (Biometric Airlock Arch: [4.6, 0.24, -2.0])
 // ─────────────────────────────────────────────────────────────────────────────
 export function AirlockGateSculpture({
   node,
@@ -448,11 +588,15 @@ export function AirlockGateSculpture({
   animatingRay = false,
 }: SculptureProps) {
   const [hovered, setHovered] = useState(false)
+  const scannerRef = useRef<THREE.Mesh>(null)
   const laserRef = useRef<THREE.Mesh>(null)
 
   useFrame((_, delta) => {
+    if (scannerRef.current) {
+      scannerRef.current.rotation.z += delta * (animatingRay ? 4.5 : 1.2)
+    }
     if (laserRef.current) {
-      laserRef.current.position.y = 0.45 + Math.sin(Date.now() * 0.005) * 0.28
+      laserRef.current.position.y = 0.65 + Math.sin(Date.now() * 0.006) * 0.3
     }
   })
 
@@ -475,37 +619,47 @@ export function AirlockGateSculpture({
         document.body.style.cursor = 'auto'
       }}
     >
-      {/* Base Plinth */}
-      <mesh position={[0, -0.15, 0]}>
-        <boxGeometry args={[1.2, 0.2, 0.8]} />
-        <meshStandardMaterial color="#141B29" roughness={0.3} metalness={0.78} />
+      {/* Plinth Base */}
+      <mesh position={[0, 0.1, 0]} castShadow>
+        <boxGeometry args={[1.3, 0.2, 0.9]} />
+        <meshStandardMaterial color="#334155" roughness={0.25} metalness={0.85} />
       </mesh>
 
-      {/* Inverted U-Arch Titanium Gate Straddling Incoming Rail */}
-      <mesh position={[-0.42, 0.45, 0]}>
-        <boxGeometry args={[0.16, 0.95, 0.24]} />
-        <meshStandardMaterial color="#0B101B" roughness={0.2} metalness={0.85} />
-      </mesh>
-      <mesh position={[0.42, 0.45, 0]}>
-        <boxGeometry args={[0.16, 0.95, 0.24]} />
-        <meshStandardMaterial color="#0B101B" roughness={0.2} metalness={0.85} />
-      </mesh>
-      <mesh position={[0, 0.92, 0]}>
-        <boxGeometry args={[1.0, 0.16, 0.24]} />
-        <meshStandardMaterial color="#1E293B" roughness={0.25} metalness={0.8} />
+      {/* Double Concentric Titanium Vault Door Outer Ring */}
+      <mesh position={[0, 0.72, 0]} rotation={[0, 0, 0]}>
+        <torusGeometry args={[0.58, 0.08, 16, 36]} />
+        <meshStandardMaterial color="#64748b" roughness={0.2} metalness={0.9} />
       </mesh>
 
-      {/* Dual Vertical Verification Laser Emitter Bars */}
-      <mesh ref={laserRef} position={[0, 0.45, 0]}>
-        <boxGeometry args={[0.65, 0.02, 0.02]} />
-        <meshBasicMaterial color="#34D399" />
+      {/* Double Concentric Inner Ring */}
+      <mesh position={[0, 0.72, 0]}>
+        <torusGeometry args={[0.42, 0.05, 16, 36]} />
+        <meshStandardMaterial color="#334155" roughness={0.2} metalness={0.85} />
+      </mesh>
+
+      {/* Spinning Keyway Scanner Core */}
+      <mesh ref={scannerRef} position={[0, 0.72, 0]}>
+        <cylinderGeometry args={[0.24, 0.24, 0.12, 6]} />
+        <meshStandardMaterial
+          color="#10b981"
+          emissive="#10b981"
+          emissiveIntensity={animatingRay ? 1.6 : isSelected ? 1.2 : 0.6}
+          roughness={0.15}
+          metalness={0.85}
+        />
+      </mesh>
+
+      {/* Dual Vertical Verification Laser Emitter Bar */}
+      <mesh ref={laserRef} position={[0, 0.65, 0]}>
+        <boxGeometry args={[0.72, 0.02, 0.02]} />
+        <meshBasicMaterial color="#34d399" />
       </mesh>
     </group>
   )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 5. Hardware #4: Ledger Adapter :4001 (3-Blade Titanium Transformer Rack)
+// 5. Hardware #4: Ledger Adapter :4001 (Blade Server: [6.5, 0.24, 0.3])
 // ─────────────────────────────────────────────────────────────────────────────
 export function HexAdapterSculpture({
   node,
@@ -514,14 +668,12 @@ export function HexAdapterSculpture({
   onHover,
 }: SculptureProps) {
   const [hovered, setHovered] = useState(false)
-  const b1Ref = useRef<THREE.Mesh>(null)
-  const b2Ref = useRef<THREE.Mesh>(null)
-  const b3Ref = useRef<THREE.Mesh>(null)
+  const [ledFlash, setLedFlash] = useState(false)
 
-  useFrame((_, delta) => {
-    if (b1Ref.current) b1Ref.current.rotation.y += delta * 0.3
-    if (b2Ref.current) b2Ref.current.rotation.y -= delta * 0.4
-    if (b3Ref.current) b3Ref.current.rotation.y += delta * 0.3
+  useFrame(() => {
+    if (Math.random() < 0.05) {
+      setLedFlash((prev) => !prev)
+    }
   })
 
   return (
@@ -543,43 +695,44 @@ export function HexAdapterSculpture({
         document.body.style.cursor = 'auto'
       }}
     >
-      {/* Base Plinth */}
-      <mesh position={[0, -0.15, 0]}>
-        <cylinderGeometry args={[0.65, 0.72, 0.2, 6]} />
-        <meshStandardMaterial color="#141B29" roughness={0.3} metalness={0.78} />
+      {/* Plinth Base */}
+      <mesh position={[0, 0.1, 0]} castShadow>
+        <boxGeometry args={[1.1, 0.2, 0.9]} />
+        <meshStandardMaterial color="#334155" roughness={0.25} metalness={0.85} />
       </mesh>
 
-      {/* 3 Horizontal Stacked Chamfered Titanium Transformer Blades */}
-      <mesh ref={b1Ref} position={[0, 0.1, 0]}>
-        <cylinderGeometry args={[0.55, 0.55, 0.14, 6]} />
-        <meshStandardMaterial color="#1E293B" roughness={0.25} metalness={0.8} />
-      </mesh>
-      {/* Cobalt Micro-LED Slit 1 */}
-      <mesh position={[0, 0.2, 0]}>
-        <cylinderGeometry args={[0.52, 0.52, 0.02, 6]} />
-        <meshBasicMaterial color="#3B82F6" />
-      </mesh>
+      {/* Layered 3-Rack Horizontal API Bus Blade Server */}
+      {[0.32, 0.56, 0.8].map((y, idx) => (
+        <group key={`blade-${idx}`} position={[0, y, 0]}>
+          {/* Anodized Aluminum Blade Server Chassis */}
+          <mesh castShadow>
+            <boxGeometry args={[0.92, 0.16, 0.72]} />
+            <meshStandardMaterial color="#475569" roughness={0.25} metalness={0.8} />
+          </mesh>
 
-      <mesh ref={b2Ref} position={[0, 0.32, 0]}>
-        <cylinderGeometry args={[0.48, 0.48, 0.14, 6]} />
-        <meshStandardMaterial color="#334155" roughness={0.2} metalness={0.85} />
-      </mesh>
-      {/* Cobalt Micro-LED Slit 2 */}
-      <mesh position={[0, 0.42, 0]}>
-        <cylinderGeometry args={[0.45, 0.45, 0.02, 6]} />
-        <meshBasicMaterial color="#60A5FA" />
-      </mesh>
+          {/* Front Panel Drive Bays */}
+          <mesh position={[0, 0, 0.37]}>
+            <boxGeometry args={[0.84, 0.1, 0.02]} />
+            <meshStandardMaterial color="#1e293b" roughness={0.3} metalness={0.7} />
+          </mesh>
 
-      <mesh ref={b3Ref} position={[0, 0.54, 0]}>
-        <cylinderGeometry args={[0.42, 0.42, 0.14, 6]} />
-        <meshStandardMaterial color="#1E293B" roughness={0.25} metalness={0.8} />
-      </mesh>
+          {/* Blinking Cobalt LED Indicator Bars */}
+          <mesh position={[-0.32, 0, 0.385]}>
+            <boxGeometry args={[0.06, 0.04, 0.01]} />
+            <meshBasicMaterial color={ledFlash && idx === 0 ? '#60a5fa' : '#3b82f6'} />
+          </mesh>
+          <mesh position={[-0.22, 0, 0.385]}>
+            <boxGeometry args={[0.06, 0.04, 0.01]} />
+            <meshBasicMaterial color="#34d399" />
+          </mesh>
+        </group>
+      ))}
     </group>
   )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 6. Hardware #5: TigerBeetle Cluster :3001 (Tri-Vault Consensus Citadel)
+// 6. Hardware #5: TigerBeetle Cluster :3001 (Citadel: [4.8, 0.24, 2.5])
 // ─────────────────────────────────────────────────────────────────────────────
 export function QuorumTriadSculpture({
   node,
@@ -595,11 +748,11 @@ export function QuorumTriadSculpture({
 
   useFrame((_, delta) => {
     if (haloRef.current) {
-      haloRef.current.rotation.z += delta * (isBreached ? 3.0 : 0.8)
+      haloRef.current.rotation.z += delta * (isBreached ? 3.5 : 0.9)
     }
   })
 
-  const clusterColor = isBreached ? '#F43F5E' : node.color
+  const clusterColor = isBreached ? '#f43f5e' : '#8b5cf6'
 
   return (
     <group
@@ -620,41 +773,51 @@ export function QuorumTriadSculpture({
         document.body.style.cursor = 'auto'
       }}
     >
-      {/* Triangular Citadel Base */}
-      <mesh position={[0, -0.15, 0]}>
-        <cylinderGeometry args={[0.85, 0.95, 0.2, 3]} />
-        <meshStandardMaterial color="#141B29" roughness={0.3} metalness={0.78} />
+      {/* Triangular Plinth Base */}
+      <mesh position={[0, 0.1, 0]} castShadow>
+        <cylinderGeometry args={[0.88, 0.96, 0.2, 3]} />
+        <meshStandardMaterial color="#334155" roughness={0.25} metalness={0.85} />
       </mesh>
 
-      {/* Floating Consensus Ring linking the Triad */}
-      <mesh ref={haloRef} position={[0, 0.48, 0]} rotation={[Math.PI / 2, 0, 0]}>
-        <torusGeometry args={[0.62, 0.018, 16, 32]} />
+      {/* Shared Metallic Cap Ring linking the Citadel */}
+      <mesh ref={haloRef} position={[0, 0.85, 0]} rotation={[Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[0.65, 0.022, 16, 36]} />
         <meshStandardMaterial
           color={clusterColor}
           emissive={clusterColor}
-          emissiveIntensity={isBreached ? 1.6 : isSelected ? 1.0 : 0.4}
+          emissiveIntensity={isBreached ? 1.8 : isSelected ? 1.2 : 0.6}
         />
       </mesh>
 
-      {/* 3 Machined Titanium Cylindrical Vault Drums */}
+      {/* 3 Glossy Titanium-and-Glass Vertical Storage Cylinders */}
       {[
-        [0, 0.28, -0.42],
-        [-0.38, 0.28, 0.26],
-        [0.38, 0.28, 0.26],
+        [0, 0.48, -0.42],
+        [-0.38, 0.48, 0.26],
+        [0.38, 0.48, 0.26],
       ].map(([x, y, z], i) => (
-        <group key={`vault-drum-${i}`} position={[x, y, z]}>
-          <mesh>
-            <cylinderGeometry args={[0.26, 0.28, 0.52, 24]} />
+        <group key={`cylinder-${i}`} position={[x, y, z]}>
+          {/* Main Storage Cylinder */}
+          <mesh castShadow>
+            <cylinderGeometry args={[0.26, 0.28, 0.65, 24]} />
             <meshStandardMaterial
-              color={isBreached ? '#EF4444' : '#1E293B'}
-              roughness={0.25}
-              metalness={0.8}
+              color={isBreached ? '#ef4444' : '#1e293b'}
+              roughness={0.2}
+              metalness={0.88}
+            />
+          </mesh>
+          {/* Glowing Violet Data Ring */}
+          <mesh position={[0, 0, 0]}>
+            <cylinderGeometry args={[0.27, 0.27, 0.08, 24]} />
+            <meshStandardMaterial
+              color="#a855f7"
+              emissive="#a855f7"
+              emissiveIntensity={isBreached ? 1.8 : 0.9}
             />
           </mesh>
           {/* Brushed Metallic Lid */}
-          <mesh position={[0, 0.28, 0]}>
-            <cylinderGeometry args={[0.27, 0.27, 0.06, 24]} />
-            <meshStandardMaterial color="#334155" roughness={0.15} metalness={0.9} />
+          <mesh position={[0, 0.35, 0]}>
+            <cylinderGeometry args={[0.28, 0.28, 0.06, 24]} />
+            <meshStandardMaterial color="#64748b" roughness={0.15} metalness={0.9} />
           </mesh>
         </group>
       ))}
@@ -663,7 +826,7 @@ export function QuorumTriadSculpture({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 7. Hardware #6: Independent Witness :5000 (Optical Merkle Notary Beacon)
+// 7. Hardware #6: Independent Witness :5000 (Obelisk: [0, 0.24, 2.8])
 // ─────────────────────────────────────────────────────────────────────────────
 export function MerkleTowerSculpture({
   node,
@@ -672,11 +835,16 @@ export function MerkleTowerSculpture({
   onHover,
 }: SculptureProps) {
   const [hovered, setHovered] = useState(false)
-  const turretRef = useRef<THREE.Mesh>(null)
+  const crystalRef = useRef<THREE.Mesh>(null)
+  const ringRef = useRef<THREE.Mesh>(null)
 
   useFrame((_, delta) => {
-    if (turretRef.current) {
-      turretRef.current.rotation.y += delta * 0.9
+    if (crystalRef.current) {
+      crystalRef.current.rotation.y += delta * 0.8
+      crystalRef.current.rotation.x += delta * 0.3
+    }
+    if (ringRef.current) {
+      ringRef.current.rotation.z -= delta * 1.1
     }
   })
 
@@ -699,27 +867,41 @@ export function MerkleTowerSculpture({
         document.body.style.cursor = 'auto'
       }}
     >
-      {/* Stepped Pedestal Base */}
-      <mesh position={[0, -0.15, 0]}>
-        <cylinderGeometry args={[0.55, 0.65, 0.2, 8]} />
-        <meshStandardMaterial color="#141B29" roughness={0.3} metalness={0.78} />
+      {/* Stepped Pyramid Pedestal Base */}
+      <mesh position={[0, 0.1, 0]} castShadow>
+        <cylinderGeometry args={[0.62, 0.75, 0.2, 8]} />
+        <meshStandardMaterial color="#334155" roughness={0.25} metalness={0.85} />
       </mesh>
-
-      {/* Tower Body */}
       <mesh position={[0, 0.25, 0]}>
-        <cylinderGeometry args={[0.34, 0.42, 0.55, 8]} />
-        <meshStandardMaterial color="#1E293B" roughness={0.25} metalness={0.8} />
+        <cylinderGeometry args={[0.48, 0.58, 0.15, 8]} />
+        <meshStandardMaterial color="#475569" roughness={0.2} metalness={0.9} />
       </mesh>
 
-      {/* Rotating Amber Crystal Prism Turret (Aims directly at TigerBeetle) */}
-      <mesh ref={turretRef} position={[0, 0.68, 0]}>
-        <octahedronGeometry args={[0.24, 0]} />
+      {/* Obelisk Column Body */}
+      <mesh position={[0, 0.58, 0]}>
+        <cylinderGeometry args={[0.32, 0.42, 0.55, 8]} />
+        <meshStandardMaterial color="#1e293b" roughness={0.25} metalness={0.8} />
+      </mesh>
+
+      {/* Slowly Rotating Golden Octahedron Crystal */}
+      <mesh ref={crystalRef} position={[0, 1.05, 0]}>
+        <octahedronGeometry args={[0.28, 0]} />
         <meshStandardMaterial
-          color="#F59E0B"
-          emissive="#F59E0B"
-          emissiveIntensity={isSelected ? 1.4 : hovered ? 1.0 : 0.6}
+          color="#f59e0b"
+          emissive="#f59e0b"
+          emissiveIntensity={isSelected ? 1.6 : hovered ? 1.2 : 0.75}
           roughness={0.1}
-          metalness={0.9}
+          metalness={0.95}
+        />
+      </mesh>
+
+      {/* Orbiting Notarization Ring */}
+      <mesh ref={ringRef} position={[0, 1.05, 0]} rotation={[Math.PI / 4, 0, 0]}>
+        <torusGeometry args={[0.46, 0.016, 16, 32]} />
+        <meshStandardMaterial
+          color="#fbbf24"
+          emissive="#fbbf24"
+          emissiveIntensity={1.0}
         />
       </mesh>
     </group>
@@ -727,7 +909,7 @@ export function MerkleTowerSculpture({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 8. Hardware #7: Compliance Cockpit :3000 (Glass Telemetry Deck)
+// 8. Hardware #7: Compliance Cockpit :3000 (Console: [-5.2, 0.24, 2.7])
 // ─────────────────────────────────────────────────────────────────────────────
 export function CockpitSlabSculpture({
   node,
@@ -756,34 +938,57 @@ export function CockpitSlabSculpture({
         document.body.style.cursor = 'auto'
       }}
     >
-      {/* Low-Profile Titanium Console Base */}
-      <mesh position={[0, -0.15, 0]}>
-        <boxGeometry args={[1.05, 0.2, 0.8]} />
-        <meshStandardMaterial color="#141B29" roughness={0.3} metalness={0.78} />
+      {/* Metallic Desk Plinth Base */}
+      <mesh position={[0, 0.1, 0]} castShadow>
+        <boxGeometry args={[1.25, 0.2, 0.85]} />
+        <meshStandardMaterial color="#334155" roughness={0.25} metalness={0.85} />
       </mesh>
 
-      {/* Tilted Frosted-Glass Display Plane */}
-      <mesh position={[0, 0.16, 0]} rotation={[-0.42, 0, 0]}>
-        <boxGeometry args={[0.92, 0.05, 0.65]} />
-        <meshStandardMaterial
-          color="#0F172A"
-          roughness={0.15}
-          metalness={0.85}
-        />
+      {/* Desk Surface Tabletop */}
+      <mesh position={[0, 0.22, 0]}>
+        <boxGeometry args={[1.15, 0.06, 0.75]} />
+        <meshStandardMaterial color="#1e293b" roughness={0.2} metalness={0.8} />
       </mesh>
-      {/* Glowing Screen Surface */}
-      <mesh position={[0, 0.19, 0]} rotation={[-0.42, 0, 0]}>
-        <planeGeometry args={[0.82, 0.55]} />
-        <meshStandardMaterial
-          color="#EC4899"
-          emissive="#EC4899"
-          emissiveIntensity={isSelected ? 1.1 : hovered ? 0.8 : 0.45}
-          roughness={0.1}
-          metalness={0.3}
-          transparent
-          opacity={0.85}
-        />
-      </mesh>
+
+      {/* Left Curved Translucent Frosted-Glass Telemetry Screen */}
+      <group position={[-0.26, 0.48, 0]} rotation={[-0.28, 0.2, 0]}>
+        <mesh>
+          <boxGeometry args={[0.48, 0.38, 0.02]} />
+          <meshStandardMaterial
+            color="#ec4899"
+            emissive="#ec4899"
+            emissiveIntensity={isSelected ? 1.0 : hovered ? 0.8 : 0.45}
+            transparent
+            opacity={0.85}
+            roughness={0.15}
+          />
+        </mesh>
+        {/* Glowing Status Mini-Bar */}
+        <mesh position={[0, -0.12, 0.015]}>
+          <boxGeometry args={[0.38, 0.03, 0.005]} />
+          <meshBasicMaterial color="#f472b6" />
+        </mesh>
+      </group>
+
+      {/* Right Curved Translucent Frosted-Glass Telemetry Screen */}
+      <group position={[0.26, 0.48, 0]} rotation={[-0.28, -0.2, 0]}>
+        <mesh>
+          <boxGeometry args={[0.48, 0.38, 0.02]} />
+          <meshStandardMaterial
+            color="#38bdf8"
+            emissive="#38bdf8"
+            emissiveIntensity={isSelected ? 1.0 : hovered ? 0.8 : 0.45}
+            transparent
+            opacity={0.85}
+            roughness={0.15}
+          />
+        </mesh>
+        {/* Glowing Status Mini-Bar */}
+        <mesh position={[0, -0.12, 0.015]}>
+          <boxGeometry args={[0.38, 0.03, 0.005]} />
+          <meshBasicMaterial color="#38bdf8" />
+        </mesh>
+      </group>
     </group>
   )
 }
@@ -792,7 +997,7 @@ export function CockpitSlabSculpture({
 // 9. Reusable Export: Agent 3D Quarantine Wireframe Lock Cage (Scenario #5)
 // ─────────────────────────────────────────────────────────────────────────────
 export function AgentQuarantineCage({
-  position = [-5.6, -0.5, 0.0],
+  position = [-5.8, 0.7, -0.6],
   active = false,
 }: {
   position?: [number, number, number]
@@ -802,7 +1007,7 @@ export function AgentQuarantineCage({
 
   useFrame((_, delta) => {
     if (cageRef.current && active) {
-      cageRef.current.rotation.y += delta * 0.4
+      cageRef.current.rotation.y += delta * 0.45
     }
   })
 
@@ -811,14 +1016,14 @@ export function AgentQuarantineCage({
   return (
     <group position={position}>
       <mesh ref={cageRef}>
-        <boxGeometry args={[1.65, 1.65, 1.65]} />
+        <boxGeometry args={[1.7, 1.7, 1.7]} />
         <meshStandardMaterial
-          color="#F43F5E"
+          color="#f43f5e"
           wireframe
           transparent
-          opacity={0.85}
-          emissive="#F43F5E"
-          emissiveIntensity={1.4}
+          opacity={0.9}
+          emissive="#f43f5e"
+          emissiveIntensity={1.5}
         />
       </mesh>
     </group>
@@ -829,7 +1034,7 @@ export function AgentQuarantineCage({
 // 10. Reusable Export: Subterranean DB Tamper Crimson Spike (Scenario #7)
 // ─────────────────────────────────────────────────────────────────────────────
 export function DbTamperSpike({
-  position = [4.8, -0.9, 2.2],
+  position = [4.8, 0.24, 2.5],
   active = false,
 }: {
   position?: [number, number, number]
@@ -850,8 +1055,8 @@ export function DbTamperSpike({
       <mesh ref={spikeRef} rotation={[0, 0, Math.PI]}>
         <coneGeometry args={[0.42, 1.2, 6]} />
         <meshStandardMaterial
-          color="#EF4444"
-          emissive="#EF4444"
+          color="#ef4444"
+          emissive="#ef4444"
           emissiveIntensity={1.8}
           roughness={0.2}
           metalness={0.7}
